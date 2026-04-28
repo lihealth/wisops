@@ -35,12 +35,14 @@ _extract_jobs: Dict[str, Dict[str, Any]] = {}
 # ──────────────────────────────────────────────────────────────────────────────
 
 class AddRelationRequest(BaseModel):
-    fault_name:           str = Field(..., min_length=1, max_length=200)
-    solution_name:        str = Field(..., min_length=1, max_length=200)
-    solution_description: str = Field(default="", max_length=2000)
-    data_source:          str = Field(default="manual")
+    fault_name:           str   = Field(..., min_length=1, max_length=200)
+    solution_name:        str   = Field(..., min_length=1, max_length=200)
+    solution_description: str   = Field(default="", max_length=2000)
+    steps:                str   = Field(default="")
+    domain:               str   = Field(default="")
+    data_source:          str   = Field(default="manual")
     confidence:           float = Field(default=1.0, ge=0.0, le=1.0)
-    import_batch_id:      str = Field(default="")
+    import_batch_id:      str   = Field(default="")
 
 class SOPRequest(BaseModel):
     title:        str        = Field(..., min_length=1, max_length=300)
@@ -136,14 +138,83 @@ def _extract_data(payload: Dict[str, Any]) -> List[Any]:
 
 
 def ensure_schema_v2() -> None:
-    """幂等执行 V2.0 Schema 初始化"""
-    schema_dir = os.path.dirname(__file__)
-    schema_file = os.path.join(schema_dir, "schema_v2.groovy")
-    if not os.path.exists(schema_file):
-        _ensure_schema_v1()
-        return
-    with open(schema_file, "r", encoding="utf-8") as f:
-        script = f.read()
+    """幂等执行 V2.0 Schema 初始化（兼容已存在的 V1.x 顶点标签）"""
+    script = """
+schema = hugegraph.schema()
+// 属性键（全部幂等）
+schema.propertyKey('name').asText().ifNotExist().create()
+schema.propertyKey('description').asText().ifNotExist().create()
+schema.propertyKey('title').asText().ifNotExist().create()
+schema.propertyKey('steps').asText().ifNotExist().create()
+schema.propertyKey('version').asText().ifNotExist().create()
+schema.propertyKey('author').asText().ifNotExist().create()
+schema.propertyKey('domain').asText().ifNotExist().create()
+schema.propertyKey('category').asText().ifNotExist().create()
+schema.propertyKey('severity').asText().ifNotExist().create()
+schema.propertyKey('data_source').asText().ifNotExist().create()
+schema.propertyKey('confidence').asDouble().ifNotExist().create()
+schema.propertyKey('import_batch_id').asText().ifNotExist().create()
+schema.propertyKey('created_at').asLong().ifNotExist().create()
+schema.propertyKey('score').asDouble().ifNotExist().create()
+schema.propertyKey('chunk_ref').asText().ifNotExist().create()
+schema.propertyKey('asset_id').asText().ifNotExist().create()
+schema.propertyKey('asset_type').asText().ifNotExist().create()
+schema.propertyKey('ip').asText().ifNotExist().create()
+schema.propertyKey('env').asText().ifNotExist().create()
+schema.propertyKey('alert_id').asText().ifNotExist().create()
+schema.propertyKey('content').asText().ifNotExist().create()
+schema.propertyKey('level').asText().ifNotExist().create()
+schema.propertyKey('source').asText().ifNotExist().create()
+schema.propertyKey('occurred_at').asLong().ifNotExist().create()
+schema.propertyKey('incident_id').asText().ifNotExist().create()
+schema.propertyKey('status').asText().ifNotExist().create()
+schema.propertyKey('closed_at').asLong().ifNotExist().create()
+schema.propertyKey('mttr_minutes').asInt().ifNotExist().create()
+schema.propertyKey('username').asText().ifNotExist().create()
+schema.propertyKey('team').asText().ifNotExist().create()
+schema.propertyKey('expertise').asText().ifNotExist().create()
+schema.propertyKey('code').asText().ifNotExist().create()
+schema.propertyKey('method').asText().ifNotExist().create()
+schema.propertyKey('role').asText().ifNotExist().create()
+schema.propertyKey('adopted_at').asLong().ifNotExist().create()
+
+// Fault / Solution：先尝试创建，若已存在用 append 追加新属性
+def faultExists = schema.getVertexLabel('Fault') != null
+if (!faultExists) {
+  schema.vertexLabel('Fault').properties('name','description','category','severity','domain','data_source','confidence','import_batch_id','created_at').primaryKeys('name').nullableKeys('description','category','severity','domain','data_source','confidence','import_batch_id','created_at').ifNotExist().create()
+} else {
+  schema.vertexLabel('Fault').properties('description','category','severity','domain','data_source','confidence','import_batch_id','created_at').nullableKeys('description','category','severity','domain','data_source','confidence','import_batch_id','created_at').append()
+}
+def solExists = schema.getVertexLabel('Solution') != null
+if (!solExists) {
+  schema.vertexLabel('Solution').properties('name','description','steps','data_source','confidence','import_batch_id','created_at').primaryKeys('name').nullableKeys('description','steps','data_source','confidence','import_batch_id','created_at').ifNotExist().create()
+} else {
+  schema.vertexLabel('Solution').properties('description','steps','data_source','confidence','import_batch_id','created_at').nullableKeys('description','steps','data_source','confidence','import_batch_id','created_at').append()
+}
+
+// SOP / Asset / Alert / Incident / Person / Category
+schema.vertexLabel('SOP').properties('name','title','steps','version','author','data_source','confidence','created_at').primaryKeys('name').nullableKeys('title','steps','version','author','data_source','confidence','created_at').ifNotExist().create()
+schema.vertexLabel('Asset').properties('asset_id','asset_type','name','ip','env','data_source','created_at').primaryKeys('asset_id').nullableKeys('asset_type','name','ip','env','data_source','created_at').ifNotExist().create()
+schema.vertexLabel('Alert').properties('alert_id','content','level','source','occurred_at','status','created_at').primaryKeys('alert_id').nullableKeys('content','level','source','occurred_at','status','created_at').ifNotExist().create()
+schema.vertexLabel('Incident').properties('incident_id','title','status','created_at','closed_at','mttr_minutes').primaryKeys('incident_id').nullableKeys('title','status','created_at','closed_at','mttr_minutes').ifNotExist().create()
+schema.vertexLabel('Person').properties('username','team','expertise').primaryKeys('username').nullableKeys('team','expertise').ifNotExist().create()
+schema.vertexLabel('Category').properties('code','name','domain').primaryKeys('code').nullableKeys('name','domain').ifNotExist().create()
+
+// 边标签
+schema.edgeLabel('HAS_SOLUTION').sourceLabel('Fault').targetLabel('Solution').nullableKeys('created_at').ifNotExist().create()
+schema.edgeLabel('HAS_SOP').sourceLabel('Fault').targetLabel('SOP').nullableKeys('created_at').ifNotExist().create()
+schema.edgeLabel('SIMILAR_TO').sourceLabel('Fault').targetLabel('Fault').nullableKeys('score','method').ifNotExist().create()
+schema.edgeLabel('HAS_ALERT').sourceLabel('Asset').targetLabel('Alert').nullableKeys('created_at').ifNotExist().create()
+schema.edgeLabel('TRIGGERS').sourceLabel('Alert').targetLabel('Fault').nullableKeys('created_at').ifNotExist().create()
+schema.edgeLabel('INVOLVES').sourceLabel('Incident').targetLabel('Asset').nullableKeys('created_at').ifNotExist().create()
+schema.edgeLabel('CAUSED_BY').sourceLabel('Incident').targetLabel('Fault').nullableKeys('confidence').ifNotExist().create()
+schema.edgeLabel('RESOLVED_BY').sourceLabel('Incident').targetLabel('Solution').nullableKeys('adopted_at').ifNotExist().create()
+schema.edgeLabel('CLASSIFIED_AS').sourceLabel('Fault').targetLabel('Category').nullableKeys('created_at').ifNotExist().create()
+schema.edgeLabel('DOCUMENTED_IN').sourceLabel('Solution').targetLabel('SOP').nullableKeys('chunk_ref').ifNotExist().create()
+schema.edgeLabel('CONTRIBUTED').sourceLabel('Person').targetLabel('Solution').nullableKeys('role','adopted_at').ifNotExist().create()
+schema.edgeLabel('HANDLED_BY').sourceLabel('Incident').targetLabel('Person').nullableKeys('role').ifNotExist().create()
+"schema_v2_ok"
+"""
     execute_gremlin(script)
 
 
@@ -185,42 +256,68 @@ def health() -> Dict[str, str]:
         return {"status": "degraded", "hugegraph": "disconnected", "api_version": "2.0"}
 
 
+def _upsert_vertex(label: str, name: str, extra_props: Dict[str, Any]) -> str:
+    """查找或创建顶点，返回顶点 ID（字符串）"""
+    find = execute_gremlin(
+        "g.V().hasLabel(lbl).has('name', vname).id()",
+        {"lbl": label, "vname": name},
+    )
+    ids = _extract_data(find)
+    if ids:
+        return str(ids[0])
+
+    # 构造 property 链
+    now = int(time.time() * 1000)
+    props = {"vname": name, "ts": now}
+    prop_chain = ".property('name', vname).property('created_at', ts)"
+    for k, v in extra_props.items():
+        props[k] = v
+        prop_chain += f".property('{k}', {k})"
+
+    script = f"g.addV(lbl){prop_chain}.id()"
+    props["lbl"] = label
+    result = execute_gremlin(script, props)
+    ids = _extract_data(result)
+    return str(ids[0]) if ids else ""
+
+
 @app.post("/graph/add")
 def add_relation(payload: AddRelationRequest) -> Dict[str, Any]:
     now = int(time.time() * 1000)
-    script = """
-def f = g.V().hasLabel('Fault').has('name', fault_name).fold().
-      coalesce(__.unfold(),
-               __.addV('Fault').property('name', fault_name)
-                               .property('data_source', data_source)
-                               .property('confidence', confidence)
-                               .property('created_at', ts)).next()
-def s = g.V().hasLabel('Solution').has('name', solution_name).fold().
-      coalesce(__.unfold(),
-               __.addV('Solution').property('name', solution_name)
-                                  .property('description', solution_description)
-                                  .property('data_source', data_source)
-                                  .property('confidence', confidence)
-                                  .property('created_at', ts)).next()
-def sid = s.id()
-if (g.V(f).outE('HAS_SOLUTION').where(__.inV().hasId(sid)).hasNext()) {
-  'exists'
-} else {
-  g.V(f).as('a').V(sid).addE('HAS_SOLUTION').from('a').next()
-  'created'
-}
-"""
-    result = execute_gremlin(script, {
-        "fault_name":           payload.fault_name,
-        "solution_name":        payload.solution_name,
-        "solution_description": payload.solution_description,
-        "data_source":          payload.data_source,
-        "confidence":           payload.confidence,
-        "ts":                   now,
+
+    # 1. 确保 Fault 顶点存在
+    fid = _upsert_vertex("Fault", payload.fault_name, {
+        "data_source": payload.data_source,
+        "confidence":  payload.confidence,
+        "domain":      payload.domain,
     })
-    data = _extract_data(result)
-    state = data[0] if data else "unknown"
-    return {"status": "ok", "edge_status": state}
+    if not fid:
+        raise HTTPException(status_code=502, detail="Failed to create Fault vertex")
+
+    # 2. 确保 Solution 顶点存在
+    sid = _upsert_vertex("Solution", payload.solution_name, {
+        "description": payload.solution_description,
+        "steps":       payload.steps,
+        "data_source": payload.data_source,
+        "confidence":  payload.confidence,
+    })
+    if not sid:
+        raise HTTPException(status_code=502, detail="Failed to create Solution vertex")
+
+    # 3. 检查边是否已存在，不存在则创建
+    check = execute_gremlin(
+        "g.V(fid).outE('HAS_SOLUTION').where(__.inV().hasId(sid)).count()",
+        {"fid": fid, "sid": sid},
+    )
+    cnt = (_extract_data(check) or [0])[0]
+    if cnt > 0:
+        return {"status": "ok", "edge_status": "exists"}
+
+    execute_gremlin(
+        "def fv = g.V(fid).next(); def sv = g.V(sid).next(); g.addE('HAS_SOLUTION').from(fv).to(sv).iterate()",
+        {"fid": fid, "sid": sid},
+    )
+    return {"status": "ok", "edge_status": "created"}
 
 
 @app.get("/graph/faults")
@@ -467,8 +564,9 @@ if (!g.V(f).out('HAS_SOP').hasLabel('SOP').has('title', title).hasNext()) {
 
 @app.get("/graph/sop")
 def list_sops(fault_name: Optional[str] = None) -> Dict[str, Any]:
-    if fault_name:
-        script = """
+    try:
+        if fault_name:
+            script = """
 g.V().hasLabel('Fault').has('name', fault_name).
   out('HAS_SOP').
   project('title','steps','version','author','data_source').
@@ -478,9 +576,9 @@ g.V().hasLabel('Fault').has('name', fault_name).
     by(coalesce(values('author'), constant(''))).
     by(coalesce(values('data_source'), constant('manual')))
 """
-        result = execute_gremlin(script, {"fault_name": fault_name})
-    else:
-        script = """
+            result = execute_gremlin(script, {"fault_name": fault_name})
+        else:
+            script = """
 g.V().hasLabel('SOP').
   project('title','steps','version','author','data_source').
     by(values('title')).
@@ -489,16 +587,19 @@ g.V().hasLabel('SOP').
     by(coalesce(values('author'), constant(''))).
     by(coalesce(values('data_source'), constant('manual')))
 """
-        result = execute_gremlin(script)
+            result = execute_gremlin(script)
 
-    sops = _extract_data(result)
-    for sop in sops:
-        if isinstance(sop.get("steps"), str):
-            try:
-                sop["steps"] = json.loads(sop["steps"])
-            except Exception:
-                sop["steps"] = []
-    return {"sops": sops, "count": len(sops)}
+        sops = _extract_data(result)
+        for sop in sops:
+            if isinstance(sop.get("steps"), str):
+                try:
+                    sop["steps"] = json.loads(sop["steps"])
+                except Exception:
+                    sop["steps"] = []
+        return {"sops": sops, "count": len(sops)}
+    except HTTPException:
+        # SOP 顶点标签尚未创建时返回空列表，不报错
+        return {"sops": [], "count": 0}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -862,35 +963,61 @@ def reject_extract(item_id: str) -> Dict[str, Any]:
 
 @app.get("/ops/stats")
 def ops_stats() -> Dict[str, Any]:
-    def _count(label: str) -> int:
-        r = execute_gremlin(f"g.V().hasLabel('{label}').count()")
-        return (_extract_data(r) or [0])[0]
+    def _safe_count(label: str) -> int:
+        try:
+            r = execute_gremlin(f"g.V().hasLabel('{label}').count()")
+            return (_extract_data(r) or [0])[0]
+        except Exception:
+            return 0
 
-    fault_count    = _count("Fault")
-    solution_count = _count("Solution")
-    sop_count      = _count("SOP")
-    asset_count    = _count("Asset")
-    incident_count = _count("Incident")
-    alert_count    = _count("Alert")
+    fault_count    = _safe_count("Fault")
+    solution_count = _safe_count("Solution")
+    sop_count      = _safe_count("SOP")
+    asset_count    = _safe_count("Asset")
+    incident_count = _safe_count("Incident")
+    alert_count    = _safe_count("Alert")
 
     # 知识覆盖率：有 Solution 的 Fault / 总 Fault
-    covered_result = execute_gremlin(
-        "g.V().hasLabel('Fault').where(out('HAS_SOLUTION')).count()"
-    )
-    covered = (_extract_data(covered_result) or [0])[0]
+    # HugeGraph 兼容写法：先查 HAS_SOLUTION 边的起点 id 集合，再计数
+    covered = 0
+    try:
+        covered_result = execute_gremlin(
+            "g.E().hasLabel('HAS_SOLUTION').outV().hasLabel('Fault').dedup().count()"
+        )
+        covered = (_extract_data(covered_result) or [0])[0]
+    except Exception:
+        covered = 0
     coverage_rate = round(covered / fault_count * 100, 1) if fault_count > 0 else 0.0
 
-    # 按 data_source 分布
-    source_result = execute_gremlin(
-        "g.V().hasLabel('Fault').groupCount().by(coalesce(values('data_source'), constant('unknown')))"
-    )
-    source_dist = (_extract_data(source_result) or [{}])[0]
+    # 按 data_source 分布（HugeGraph 兼容：逐个统计已知 source）
+    source_dist: Dict[str, int] = {}
+    try:
+        known_sources = ["manual", "extracted_approved", "open_gaia", "logHub",
+                         "stackoverflow", "internal_ticket"]
+        for src in known_sources:
+            r = execute_gremlin(
+                "g.V().hasLabel('Fault').has('data_source', src).count()",
+                {"src": src}
+            )
+            cnt = (_extract_data(r) or [0])[0]
+            if cnt > 0:
+                source_dist[src] = cnt
+        # 未标记 data_source 的
+        tagged = sum(source_dist.values())
+        if fault_count > tagged:
+            source_dist["unknown"] = fault_count - tagged
+    except Exception:
+        source_dist = {}
 
     # 方案复用率
-    resolved_result = execute_gremlin(
-        "g.V().hasLabel('Incident').where(out('RESOLVED_BY')).count()"
-    )
-    resolved = (_extract_data(resolved_result) or [0])[0]
+    resolved = 0
+    try:
+        resolved_result = execute_gremlin(
+            "g.E().hasLabel('RESOLVED_BY').outV().hasLabel('Incident').dedup().count()"
+        )
+        resolved = (_extract_data(resolved_result) or [0])[0]
+    except Exception:
+        resolved = 0
     reuse_rate = round(resolved / incident_count * 100, 1) if incident_count > 0 else 0.0
 
     # 抽取转化率
@@ -922,7 +1049,7 @@ def ops_stats() -> Dict[str, Any]:
 
 @app.get("/ops/stats/growth")
 def ops_growth(window: str = "week") -> Dict[str, Any]:
-    """节点增长趋势（按时间窗口）- 基础版：返回当前快照"""
+    """节点增长趋势（按时间窗口）"""
     now = int(time.time() * 1000)
     if window == "week":
         since = now - 7 * 24 * 3600 * 1000
@@ -931,23 +1058,28 @@ def ops_growth(window: str = "week") -> Dict[str, Any]:
     else:
         since = 0
 
-    for label in ["Fault", "Solution", "SOP"]:
-        r = execute_gremlin(
-            f"g.V().hasLabel('{label}').has('created_at', gte(ts)).count()",
-            {"ts": since}
-        )
-        count = (_extract_data(r) or [0])[0]
-
-    fault_r = execute_gremlin("g.V().hasLabel('Fault').has('created_at', gte(ts)).count()", {"ts": since})
-    sol_r   = execute_gremlin("g.V().hasLabel('Solution').has('created_at', gte(ts)).count()", {"ts": since})
-    sop_r   = execute_gremlin("g.V().hasLabel('SOP').has('created_at', gte(ts)).count()", {"ts": since})
+    def _count_since(label: str) -> int:
+        try:
+            # HugeGraph 兼容：使用 P.gte 谓词
+            r = execute_gremlin(
+                f"g.V().hasLabel('{label}').has('created_at', P.gte(ts)).count()",
+                {"ts": since}
+            )
+            return (_extract_data(r) or [0])[0]
+        except Exception:
+            # 降级：返回总数（不支持 created_at 过滤时）
+            try:
+                r = execute_gremlin(f"g.V().hasLabel('{label}').count()")
+                return (_extract_data(r) or [0])[0]
+            except Exception:
+                return 0
 
     return {
-        "window": window,
+        "window":   window,
         "since_ms": since,
         "new_nodes": {
-            "Fault":    (_extract_data(fault_r) or [0])[0],
-            "Solution": (_extract_data(sol_r) or [0])[0],
-            "SOP":      (_extract_data(sop_r) or [0])[0],
+            "Fault":    _count_since("Fault"),
+            "Solution": _count_since("Solution"),
+            "SOP":      _count_since("SOP"),
         }
     }

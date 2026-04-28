@@ -128,7 +128,9 @@ def import_fault(row: Dict[str, Any], api_url: str, args: argparse.Namespace) ->
     payload = {
         "fault_name":           n["fault_name"],
         "solution_name":        n["solution_name"],
-        "solution_description": n.get("solution_description", ""),
+        "solution_description": row.get("description", n.get("solution_description", "")),
+        "steps":                row.get("steps", ""),
+        "domain":               row.get("domain", ""),
         "data_source":          args.source,
         "confidence":           args.confidence,
         "import_batch_id":      args.batch_id,

@@ -1,0 +1,32 @@
+# Python 虚拟环境
+graph-api/.venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+*.egg-info/
+
+# 前端依赖与构建产物
+graph-ui/node_modules/
+graph-ui/dist/
+graph-ui/.vite/
+
+# 环境变量与密钥（绝对不能提交）
+.env
+.env.local
+.env.*.local
+
+# Docker 数据卷（本地生成，不入库）
+data/pg_data/
+data/qdrant_data/
+data/hugegraph_data/
+data/api_storage/
+
+# 编辑器与系统文件
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+logs/

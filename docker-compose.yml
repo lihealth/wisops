@@ -1,0 +1,151 @@
+services:
+  # PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: wisops-pg
+    environment:
+      POSTGRES_PASSWORD: wisops123
+      POSTGRES_DB: wisops
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"          # 避免与现有5432冲突
+    restart: unless-stopped
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: wisops-redis
+    command: redis-server --bind 0.0.0.0
+    ports:
+      - "6380:6379"          # 避免与现有6379冲突
+    restart: unless-stopped
+
+  # Qdrant
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: wisops-qdrant
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6334:6333"          # 避免与现有6333冲突
+    restart: unless-stopped
+
+  # HugeGraph
+  hugegraph:
+    image: hugegraph/hugegraph:1.3.0
+    container_name: wisops-hugegraph
+    environment:
+      - HUGEGRAPH_IP=0.0.0.0
+    ports:
+      - "8081:8080"          # 避免与现有8080冲突
+    volumes:
+      - hugegraph_data:/var/lib/hugegraph
+    restart: unless-stopped
+
+  # Dify API
+  api:
+    image: langgenius/dify-api:0.12.1
+    container_name: wisops-api
+    environment:
+      - MODE=api
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=wisops123
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=wisops
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_USE_SSL=false
+      - STORAGE_TYPE=local
+      - STORAGE_LOCAL_PATH=storage
+      - VECTOR_STORE=qdrant
+      - QDRANT_URL=http://qdrant:6333
+      - SECRET_KEY=wisops-secret-key
+      - CONSOLE_WEB_URL=http://localhost:8281
+      - APP_WEB_URL=http://localhost:8281
+      - MIGRATION_ENABLED=true
+      - CELERY_ALWAYS_EAGER=True
+      - CELERY_TASK_EAGER_PROPAGATES=True
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CONSOLE_CORS_ALLOW_ORIGINS=http://localhost:8281,http://127.0.0.1:8281
+      - WEB_API_CORS_ALLOW_ORIGINS=http://localhost:8281,http://127.0.0.1:8281
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+    volumes:
+      - api_storage:/app/api/storage
+    ports:
+      - "5002:5001"          # 避免与现有5001冲突
+    restart: unless-stopped
+
+  # Dify Worker
+  worker:
+    image: langgenius/dify-api:0.12.1
+    container_name: wisops-worker
+    environment:
+      - MODE=worker
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=wisops123
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=wisops
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_USE_SSL=false
+      - STORAGE_TYPE=local
+      - STORAGE_LOCAL_PATH=storage
+      - VECTOR_STORE=qdrant
+      - QDRANT_URL=http://qdrant:6333
+      - SECRET_KEY=wisops-secret-key
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+      - CELERY_QUEUES=dataset,priority,mail
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+    volumes:
+      - api_storage:/app/api/storage
+    restart: unless-stopped
+
+  # Dify Web
+  web:
+    image: langgenius/dify-web:0.12.1
+    container_name: wisops-web
+    environment:
+      - CONSOLE_API_URL=http://localhost:5002
+      - APP_API_URL=http://localhost:5002
+      - NEXT_PUBLIC_CONSOLE_API_URL=http://localhost:5002
+      - NEXT_PUBLIC_APP_API_URL=http://localhost:5002
+    ports:
+      - "8281:3000"          # 使用8281端口，与现有8280区分
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # 自研图谱查询 API
+  graph-api:
+    build: ./graph-api
+    container_name: wisops-graph-api
+    profiles:
+      - graph
+    environment:
+      - HUGEGRAPH_URL=http://hugegraph:8080
+      - HUGEGRAPH_GRAPH=hugegraph
+    ports:
+      - "8002:8000"
+    depends_on:
+      - hugegraph
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  qdrant_data:
+  hugegraph_data:
+  api_storage:

@@ -170,3 +170,38 @@ g.V().hasLabel('Fault').has('name', fault_name).
     result = execute_gremlin(query_script, {"fault_name": fault_name})
     rows = _extract_data(result)
     return {"fault_name": fault_name, "solutions": rows, "count": len(rows)}
+
+
+@app.get("/graph/visualize")
+def visualize_graph(fault_name: str) -> Dict[str, Any]:
+    if not fault_name.strip():
+        raise HTTPException(status_code=400, detail="fault_name cannot be empty")
+
+    nodes_script = """
+g.V().hasLabel('Fault').has('name', fault_name).as('f').
+  union(
+    select('f').project('id','label','type').by(id()).by(values('name')).by(constant('Fault')),
+    out('HAS_SOLUTION').project('id','label','type').by(id()).by(values('name')).by(constant('Solution'))
+  )
+"""
+    edges_script = """
+g.V().hasLabel('Fault').has('name', fault_name).
+  outE('HAS_SOLUTION').
+  project('id','source','target','label').
+    by(id()).
+    by(outV().id()).
+    by(inV().id()).
+    by(label())
+"""
+
+    nodes_result = execute_gremlin(nodes_script, {"fault_name": fault_name})
+    edges_result = execute_gremlin(edges_script, {"fault_name": fault_name})
+    nodes = _extract_data(nodes_result)
+    edges = _extract_data(edges_result)
+    return {
+        "fault_name": fault_name,
+        "nodes": nodes,
+        "edges": edges,
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+    }

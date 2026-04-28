@@ -90,3 +90,51 @@
 .msg-ok    { font-size: 0.85rem; color: var(--green); margin-top: 0.5rem; }
 .msg-warn  { font-size: 0.85rem; color: #f59e0b; margin-top: 0.5rem; }
 .msg-error { font-size: 0.85rem; color: var(--red); margin-top: 0.5rem; }
+
+/* Visualize */
+.visual-panel {
+  max-width: 760px;
+}
+.graph-canvas-wrap {
+  margin-top: 0.8rem;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+.graph-canvas {
+  width: 100%;
+  height: 440px;
+  display: block;
+}
+.edge-line {
+  stroke: #4b5563;
+  stroke-width: 2;
+}
+.edge-label {
+  fill: var(--muted);
+  font-size: 10px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+.fault-node {
+  fill: #6366f1;
+  stroke: #8b5cf6;
+  stroke-width: 2;
+}
+.solution-node {
+  fill: #0ea5a4;
+  stroke: #14b8a6;
+  stroke-width: 2;
+}
+.node-label {
+  fill: #fff;
+  font-size: 11px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+.node-label-main {
+  font-size: 12px;
+  font-weight: 600;
+}

@@ -21,6 +21,12 @@ data/qdrant_data/
 data/hugegraph_data/
 data/api_storage/
 
+# 外部数据集（按需下载，不入库）
+data/gaia/
+
+# 临时调研脚本
+scripts/_*.py
+
 # 编辑器与系统文件
 .vscode/
 .idea/

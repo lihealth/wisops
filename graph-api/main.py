@@ -1,6 +1,7 @@
 """WisOps Graph API — V2.0"""
 import json
 import os
+import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -101,8 +102,8 @@ def _candidate_gremlin_endpoints() -> List[str]:
 
 def execute_gremlin(gremlin: str, bindings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     global _ACTIVE_GREMLIN_ENDPOINT
-    gremlin = gremlin.replace("graph.traversal()", f"{HUGEGRAPH_GRAPH}.traversal()")
-    gremlin = gremlin.replace("graph.schema()",    f"{HUGEGRAPH_GRAPH}.schema()")
+    gremlin = re.sub(r"\bgraph\.traversal\(\)", f"{HUGEGRAPH_GRAPH}.traversal()", gremlin)
+    gremlin = re.sub(r"\bgraph\.schema\(\)",    f"{HUGEGRAPH_GRAPH}.schema()",    gremlin)
     if "traversal()" not in gremlin and "schema()" not in gremlin:
         gremlin = f"def g = {HUGEGRAPH_GRAPH}.traversal();\n" + gremlin
 
@@ -178,41 +179,76 @@ schema.propertyKey('method').asText().ifNotExist().create()
 schema.propertyKey('role').asText().ifNotExist().create()
 schema.propertyKey('adopted_at').asLong().ifNotExist().create()
 
-// Fault / Solution：先尝试创建，若已存在用 append 追加新属性
-def faultExists = schema.getVertexLabel('Fault') != null
-if (!faultExists) {
-  schema.vertexLabel('Fault').properties('name','description','category','severity','domain','data_source','confidence','import_batch_id','created_at').primaryKeys('name').nullableKeys('description','category','severity','domain','data_source','confidence','import_batch_id','created_at').ifNotExist().create()
-} else {
-  schema.vertexLabel('Fault').properties('description','category','severity','domain','data_source','confidence','import_batch_id','created_at').nullableKeys('description','category','severity','domain','data_source','confidence','import_batch_id','created_at').append()
+// Fault / Solution：仅在不存在时创建（已存在的之前已手动修复）
+def existingV1Labels = schema.getVertexLabels().collect { it.name() } as Set
+if (!existingV1Labels.contains('Fault')) {
+  schema.vertexLabel('Fault').properties('name','description','category','severity','domain','data_source','confidence','import_batch_id','created_at').primaryKeys('name').nullableKeys('description','category','severity','domain','data_source','confidence','import_batch_id','created_at').create()
 }
-def solExists = schema.getVertexLabel('Solution') != null
-if (!solExists) {
-  schema.vertexLabel('Solution').properties('name','description','steps','data_source','confidence','import_batch_id','created_at').primaryKeys('name').nullableKeys('description','steps','data_source','confidence','import_batch_id','created_at').ifNotExist().create()
-} else {
-  schema.vertexLabel('Solution').properties('description','steps','data_source','confidence','import_batch_id','created_at').nullableKeys('description','steps','data_source','confidence','import_batch_id','created_at').append()
+if (!existingV1Labels.contains('Solution')) {
+  schema.vertexLabel('Solution').properties('name','description','steps','data_source','confidence','import_batch_id','created_at').primaryKeys('name').nullableKeys('description','steps','data_source','confidence','import_batch_id','created_at').create()
 }
 
 // SOP / Asset / Alert / Incident / Person / Category
-schema.vertexLabel('SOP').properties('name','title','steps','version','author','data_source','confidence','created_at').primaryKeys('name').nullableKeys('title','steps','version','author','data_source','confidence','created_at').ifNotExist().create()
-schema.vertexLabel('Asset').properties('asset_id','asset_type','name','ip','env','data_source','created_at').primaryKeys('asset_id').nullableKeys('asset_type','name','ip','env','data_source','created_at').ifNotExist().create()
-schema.vertexLabel('Alert').properties('alert_id','content','level','source','occurred_at','status','created_at').primaryKeys('alert_id').nullableKeys('content','level','source','occurred_at','status','created_at').ifNotExist().create()
-schema.vertexLabel('Incident').properties('incident_id','title','status','created_at','closed_at','mttr_minutes').primaryKeys('incident_id').nullableKeys('title','status','created_at','closed_at','mttr_minutes').ifNotExist().create()
-schema.vertexLabel('Person').properties('username','team','expertise').primaryKeys('username').nullableKeys('team','expertise').ifNotExist().create()
-schema.vertexLabel('Category').properties('code','name','domain').primaryKeys('code').nullableKeys('name','domain').ifNotExist().create()
+def existingVertexLabels = schema.getVertexLabels().collect { it.name() } as Set
+if (!existingVertexLabels.contains('SOP')) {
+  schema.vertexLabel('SOP').properties('name','title','steps','version','author','data_source','confidence','created_at').primaryKeys('name').nullableKeys('title','steps','version','author','data_source','confidence','created_at').create()
+}
+if (!existingVertexLabels.contains('Asset')) {
+  schema.vertexLabel('Asset').properties('asset_id','asset_type','name','ip','env','data_source','created_at').primaryKeys('asset_id').nullableKeys('asset_type','name','ip','env','data_source','created_at').create()
+}
+if (!existingVertexLabels.contains('Alert')) {
+  schema.vertexLabel('Alert').properties('alert_id','content','level','source','occurred_at','status','data_source','created_at').primaryKeys('alert_id').nullableKeys('content','level','source','occurred_at','status','data_source','created_at').create()
+} else {
+  schema.vertexLabel('Alert').properties('data_source').nullableKeys('data_source').append()
+}
+if (!existingVertexLabels.contains('Incident')) {
+  schema.vertexLabel('Incident').properties('incident_id','title','status','created_at','closed_at','mttr_minutes').primaryKeys('incident_id').nullableKeys('title','status','created_at','closed_at','mttr_minutes').create()
+}
+if (!existingVertexLabels.contains('Person')) {
+  schema.vertexLabel('Person').properties('username','team','expertise').primaryKeys('username').nullableKeys('team','expertise').create()
+}
+if (!existingVertexLabels.contains('Category')) {
+  schema.vertexLabel('Category').properties('code','name','domain').primaryKeys('code').nullableKeys('name','domain').create()
+}
 
-// 边标签
-schema.edgeLabel('HAS_SOLUTION').sourceLabel('Fault').targetLabel('Solution').nullableKeys('created_at').ifNotExist().create()
-schema.edgeLabel('HAS_SOP').sourceLabel('Fault').targetLabel('SOP').nullableKeys('created_at').ifNotExist().create()
-schema.edgeLabel('SIMILAR_TO').sourceLabel('Fault').targetLabel('Fault').nullableKeys('score','method').ifNotExist().create()
-schema.edgeLabel('HAS_ALERT').sourceLabel('Asset').targetLabel('Alert').nullableKeys('created_at').ifNotExist().create()
-schema.edgeLabel('TRIGGERS').sourceLabel('Alert').targetLabel('Fault').nullableKeys('created_at').ifNotExist().create()
-schema.edgeLabel('INVOLVES').sourceLabel('Incident').targetLabel('Asset').nullableKeys('created_at').ifNotExist().create()
-schema.edgeLabel('CAUSED_BY').sourceLabel('Incident').targetLabel('Fault').nullableKeys('confidence').ifNotExist().create()
-schema.edgeLabel('RESOLVED_BY').sourceLabel('Incident').targetLabel('Solution').nullableKeys('adopted_at').ifNotExist().create()
-schema.edgeLabel('CLASSIFIED_AS').sourceLabel('Fault').targetLabel('Category').nullableKeys('created_at').ifNotExist().create()
-schema.edgeLabel('DOCUMENTED_IN').sourceLabel('Solution').targetLabel('SOP').nullableKeys('chunk_ref').ifNotExist().create()
-schema.edgeLabel('CONTRIBUTED').sourceLabel('Person').targetLabel('Solution').nullableKeys('role','adopted_at').ifNotExist().create()
-schema.edgeLabel('HANDLED_BY').sourceLabel('Incident').targetLabel('Person').nullableKeys('role').ifNotExist().create()
+// 边标签：列表内已存在的跳过；不存在的创建
+def existingEdgeLabels = schema.getEdgeLabels().collect { it.name() } as Set
+if (!existingEdgeLabels.contains('HAS_SOLUTION')) {
+  schema.edgeLabel('HAS_SOLUTION').sourceLabel('Fault').targetLabel('Solution').properties('created_at').nullableKeys('created_at').create()
+}
+if (!existingEdgeLabels.contains('HAS_SOP')) {
+  schema.edgeLabel('HAS_SOP').sourceLabel('Fault').targetLabel('SOP').properties('created_at').nullableKeys('created_at').create()
+}
+if (!existingEdgeLabels.contains('SIMILAR_TO')) {
+  schema.edgeLabel('SIMILAR_TO').sourceLabel('Fault').targetLabel('Fault').properties('score','method').nullableKeys('score','method').create()
+}
+if (!existingEdgeLabels.contains('HAS_ALERT')) {
+  schema.edgeLabel('HAS_ALERT').sourceLabel('Asset').targetLabel('Alert').properties('created_at').nullableKeys('created_at').create()
+}
+if (!existingEdgeLabels.contains('TRIGGERS')) {
+  schema.edgeLabel('TRIGGERS').sourceLabel('Alert').targetLabel('Fault').properties('created_at').nullableKeys('created_at').create()
+}
+if (!existingEdgeLabels.contains('INVOLVES')) {
+  schema.edgeLabel('INVOLVES').sourceLabel('Incident').targetLabel('Asset').properties('created_at').nullableKeys('created_at').create()
+}
+if (!existingEdgeLabels.contains('CAUSED_BY')) {
+  schema.edgeLabel('CAUSED_BY').sourceLabel('Incident').targetLabel('Fault').properties('confidence').nullableKeys('confidence').create()
+}
+if (!existingEdgeLabels.contains('RESOLVED_BY')) {
+  schema.edgeLabel('RESOLVED_BY').sourceLabel('Incident').targetLabel('Solution').properties('adopted_at').nullableKeys('adopted_at').create()
+}
+if (!existingEdgeLabels.contains('CLASSIFIED_AS')) {
+  schema.edgeLabel('CLASSIFIED_AS').sourceLabel('Fault').targetLabel('Category').properties('created_at').nullableKeys('created_at').create()
+}
+if (!existingEdgeLabels.contains('DOCUMENTED_IN')) {
+  schema.edgeLabel('DOCUMENTED_IN').sourceLabel('Solution').targetLabel('SOP').properties('chunk_ref').nullableKeys('chunk_ref').create()
+}
+if (!existingEdgeLabels.contains('CONTRIBUTED')) {
+  schema.edgeLabel('CONTRIBUTED').sourceLabel('Person').targetLabel('Solution').properties('role','adopted_at').nullableKeys('role','adopted_at').create()
+}
+if (!existingEdgeLabels.contains('HANDLED_BY')) {
+  schema.edgeLabel('HANDLED_BY').sourceLabel('Incident').targetLabel('Person').properties('role').nullableKeys('role').create()
+}
 "schema_v2_ok"
 """
     execute_gremlin(script)
@@ -241,6 +277,13 @@ def startup() -> None:
         ensure_schema_v2()
     except HTTPException:
         pass
+
+
+@app.post("/admin/schema/init")
+def admin_schema_init() -> Dict[str, Any]:
+    """手动触发 V2 Schema 初始化（暴露详细错误）"""
+    ensure_schema_v2()
+    return {"status": "ok"}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

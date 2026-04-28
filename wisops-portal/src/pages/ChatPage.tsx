@@ -8,10 +8,15 @@ interface Message {
   loading?: boolean
 }
 
-const DIFY_API_KEY = import.meta.env.VITE_DIFY_API_KEY ?? ''
-const DIFY_BASE    = '/dify-api'
+const DIFY_API_KEY_ENV = import.meta.env.VITE_DIFY_API_KEY ?? ''
+const LS_KEY           = 'wisops_dify_api_key'
+const DIFY_BASE        = '/dify-api'
 
 function uid() { return Math.random().toString(36).slice(2) }
+
+function loadKey() {
+  return DIFY_API_KEY_ENV || localStorage.getItem(LS_KEY) || ''
+}
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([
@@ -20,8 +25,8 @@ export default function ChatPage() {
   const [input, setInput]       = useState('')
   const [loading, setLoading]   = useState(false)
   const [convId, setConvId]     = useState<string | undefined>()
-  const [apiKey, setApiKey]     = useState(DIFY_API_KEY)
-  const [showKey, setShowKey]   = useState(!DIFY_API_KEY)
+  const [apiKey, setApiKey]     = useState(loadKey)
+  const [showKey, setShowKey]   = useState(() => !loadKey())
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef  = useRef<AbortController | null>(null)
 
@@ -151,7 +156,10 @@ export default function ChatPage() {
             onChange={(e) => setApiKey(e.target.value)}
             className="apikey-input"
           />
-          <button className="btn-sm" onClick={() => setShowKey(false)}>确认</button>
+          <button className="btn-sm" onClick={() => {
+            localStorage.setItem(LS_KEY, apiKey)
+            setShowKey(false)
+          }}>确认</button>
         </div>
       )}
 

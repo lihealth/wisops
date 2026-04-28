@@ -32,37 +32,3 @@ if ($WithVolumes) {
 } else {
     Write-Host "数据卷已保留，可随时重新启动。" -ForegroundColor Green
 }
-
-# WisOps 停止脚本
-# 用法：
-#   .\stop.ps1           # 停止所有容器（保留数据卷）
-#   .\stop.ps1 -Clean    # 停止并删除容器（保留数据卷）
-
-param(
-    [switch]$Clean
-)
-
-$ErrorActionPreference = "Stop"
-Set-Location $PSScriptRoot
-
-Write-Host "=== WisOps 停止 ===" -ForegroundColor Cyan
-
-if ($Clean) {
-    Write-Host "停止并删除所有容器（数据卷保留）..." -ForegroundColor Yellow
-    docker compose --profile graph down
-} else {
-    Write-Host "停止所有容器..." -ForegroundColor Yellow
-    docker compose --profile graph stop
-}
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[ERROR] 停止失败，请手动执行：docker compose down" -ForegroundColor Red
-    exit 1
-}
-
-Write-Host "=== 所有服务已停止 ===" -ForegroundColor Green
-Write-Host ""
-Write-Host "数据卷已保留，重新启动请运行：.\start.ps1"
-if ($Clean) {
-    Write-Host "注意：容器已删除，下次启动会重新创建容器"
-}

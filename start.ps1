@@ -42,11 +42,17 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "=== 服务启动成功 ===" -ForegroundColor Green
-Write-Host "Dify 控制台：    http://localhost:8281" -ForegroundColor Yellow
-Write-Host "Dify API：       http://localhost:5002" -ForegroundColor Yellow
 if ($Graph) {
-    Write-Host "图谱管理界面：   http://localhost:8282" -ForegroundColor Yellow
-    Write-Host "图谱 API 文档：  http://localhost:8002/docs" -ForegroundColor Yellow
+    Write-Host "━━━ 统一入口（推荐）━━━" -ForegroundColor Cyan
+    Write-Host "  WisOps 统一地址：  http://localhost:8280        （Dify 首页）" -ForegroundColor Yellow
+    Write-Host "  图谱管理界面：     http://localhost:8280/graph/ （图谱 UI）" -ForegroundColor Yellow
+    Write-Host "  图谱 API 文档：    http://localhost:8280/graph-api/docs" -ForegroundColor Yellow
+    Write-Host "━━━ 独立调试端口 ━━━" -ForegroundColor DarkGray
+    Write-Host "  Dify 直连：        http://localhost:8281" -ForegroundColor DarkGray
+    Write-Host "  图谱 API 直连：    http://localhost:8002/docs" -ForegroundColor DarkGray
+} else {
+    Write-Host "Dify 控制台：    http://localhost:8281" -ForegroundColor Yellow
+    Write-Host "Dify API：       http://localhost:5002" -ForegroundColor Yellow
 }
 Write-Host ""
 Write-Host "查看容器状态：docker compose ps"

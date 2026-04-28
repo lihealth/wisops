@@ -1,4 +1,4 @@
-const BASE = '/api'
+const BASE = '/graph-api'
 
 export interface Solution {
   id: string

@@ -150,9 +150,21 @@ services:
     container_name: wisops-graph-ui
     profiles:
       - graph
-    ports:
-      - "8282:80"           # 访问地址：http://localhost:8282
     depends_on:
+      - graph-api
+    restart: unless-stopped
+
+  # 统一网关（Dify + 图谱 UI + 图谱 API 聚合入口）
+  gateway:
+    build: ./gateway
+    container_name: wisops-gateway
+    profiles:
+      - graph
+    ports:
+      - "8280:80"           # 统一访问入口：http://localhost:8280
+    depends_on:
+      - web
+      - graph-ui
       - graph-api
     restart: unless-stopped
 

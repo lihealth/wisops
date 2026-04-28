@@ -50,9 +50,9 @@ export default function App() {
 
       <footer className="footer">
         WisOps V1.0 · 智能运维知识平台 ·{' '}
-        <a href="http://localhost:8281" target="_blank" rel="noreferrer">Dify 知识库</a>
+        <a href="/" target="_blank" rel="noreferrer">Dify 知识库</a>
         {' · '}
-        <a href="/api/docs" target="_blank" rel="noreferrer">API 文档</a>
+        <a href="/graph-api/docs" target="_blank" rel="noreferrer">API 文档</a>
       </footer>
     </div>
   )

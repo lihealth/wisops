@@ -5,7 +5,11 @@ import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="WisOps Graph API")
+app = FastAPI(
+    title="WisOps Graph API",
+    root_path="/graph-api",          # 告知 Swagger UI 通过网关的子路径访问
+    root_path_in_servers=False,
+)
 
 HUGEGRAPH_URL = os.getenv("HUGEGRAPH_URL", "http://localhost:8081").rstrip("/")
 HUGEGRAPH_GRAPH = os.getenv("HUGEGRAPH_GRAPH", "hugegraph")

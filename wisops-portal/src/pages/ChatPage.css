@@ -142,3 +142,52 @@
 }
 .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .send-btn:not(:disabled):hover { opacity: 0.85; }
+
+/* 模式切换 */
+.mode-switch { display: flex; gap: 0.25rem; margin-right: 0.5rem; }
+.mode-btn {
+  padding: 0.25rem 0.6rem; border-radius: 5px; border: 1px solid #3d4168;
+  background: transparent; color: #64748b; cursor: pointer; font-size: 0.75rem;
+  transition: all 0.15s; white-space: nowrap;
+}
+.mode-btn:hover  { border-color: #6366f1; color: #a5b4fc; }
+.mode-btn.active { background: #6366f1; border-color: #6366f1; color: #fff; }
+
+/* msg-wrap */
+.msg-wrap { display: flex; flex-direction: column; gap: 0.5rem; max-width: 100%; }
+
+/* 图谱上下文卡 */
+.graph-ctx-card, .rec-card {
+  background: #1a1d2e; border: 1px solid #2d3148; border-radius: 10px;
+  overflow: hidden; max-width: 560px;
+}
+.ctx-header {
+  display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.875rem;
+  cursor: pointer; background: #1e2130; user-select: none;
+}
+.ctx-badge {
+  font-size: 0.75rem; font-weight: 600; color: #a5b4fc;
+  background: #2d2f5e; padding: 0.15rem 0.5rem; border-radius: 4px; white-space: nowrap;
+}
+.rec-badge { color: #fbbf24; background: #2d2409; }
+.ctx-fault { font-size: 0.82rem; color: #e2e8f0; flex: 1; }
+.ctx-count { font-size: 0.75rem; color: #64748b; white-space: nowrap; }
+.ctx-toggle { font-size: 0.7rem; color: #64748b; }
+
+.ctx-body { padding: 0.75rem 0.875rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.ctx-sol  { display: flex; align-items: flex-start; gap: 0.5rem; }
+.ctx-sol-num {
+  width: 18px; height: 18px; border-radius: 50%; background: #6366f1;
+  color: #fff; font-size: 0.7rem; display: flex; align-items: center;
+  justify-content: center; flex-shrink: 0; margin-top: 0.1rem;
+}
+.ctx-sol-name { font-size: 0.82rem; color: #e2e8f0; flex: 1; }
+.ctx-sol-desc { font-size: 0.78rem; color: #64748b; margin-top: 0.15rem; line-height: 1.4; }
+.ctx-src  { font-size: 0.7rem; color: #475569; white-space: nowrap; flex-shrink: 0; }
+.ctx-sop  { font-size: 0.78rem; color: #60a5fa; padding-top: 0.25rem; border-top: 1px solid #2d3148; }
+
+.rec-item { display: flex; align-items: flex-start; gap: 0.6rem; }
+.rec-score {
+  background: #14532d; color: #4ade80; font-size: 0.72rem; font-weight: 600;
+  padding: 0.15rem 0.4rem; border-radius: 4px; white-space: nowrap; flex-shrink: 0;
+}

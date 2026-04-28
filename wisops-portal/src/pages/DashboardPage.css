@@ -1,0 +1,79 @@
+.dashboard { padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; overflow-y: auto; height: 100%; }
+
+.db-header  { display: flex; align-items: center; justify-content: space-between; }
+.db-title   { font-size: 1.1rem; font-weight: 600; color: #e2e8f0; }
+.db-loading { color: #64748b; text-align: center; padding: 4rem; }
+.db-error   { color: #f87171; padding: 2rem; display: flex; gap: 1rem; align-items: center; }
+
+.btn-outline {
+  padding: 0.4rem 0.9rem; background: transparent; color: #94a3b8;
+  border: 1px solid #3d4168; border-radius: 7px; cursor: pointer; font-size: 0.85rem;
+  transition: all 0.15s;
+}
+.btn-outline:hover { border-color: #6366f1; color: #e2e8f0; }
+
+/* 指标卡 */
+.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+.metric-card {
+  border-radius: 12px; padding: 1.25rem; display: flex; align-items: flex-start;
+  gap: 1rem; border: 1px solid transparent;
+}
+.metric-blue   { background: #1e2a4a; border-color: #1e3a5f; }
+.metric-green  { background: #14291e; border-color: #14532d; }
+.metric-yellow { background: #2a2209; border-color: #713f12; }
+.metric-red    { background: #2a0909; border-color: #7f1d1d; }
+
+.metric-icon  { font-size: 1.5rem; flex-shrink: 0; }
+.metric-value { font-size: 1.75rem; font-weight: 700; color: #f1f5f9; line-height: 1; }
+.metric-label { font-size: 0.8rem; color: #94a3b8; margin-top: 0.3rem; }
+.metric-sub   { font-size: 0.75rem; color: #64748b; margin-top: 0.15rem; }
+
+/* 两列行 */
+.db-row  { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+.db-card {
+  background: #1e2130; border: 1px solid #2d3148; border-radius: 12px;
+  padding: 1.25rem; display: flex; flex-direction: column; gap: 0.875rem;
+}
+.card-title  { font-size: 0.9rem; font-weight: 600; color: #94a3b8; }
+.card-header { display: flex; align-items: center; justify-content: space-between; }
+.empty-hint  { color: #475569; font-size: 0.85rem; text-align: center; padding: 1rem; }
+
+/* 条形图 */
+.bar-list { display: flex; flex-direction: column; gap: 0.6rem; }
+.bar-row  { display: flex; align-items: center; gap: 0.75rem; }
+.bar-label { width: 72px; font-size: 0.8rem; color: #94a3b8; flex-shrink: 0; text-align: right; }
+.bar-track { flex: 1; height: 8px; background: #2d3148; border-radius: 4px; overflow: hidden; }
+.bar-fill  { height: 100%; background: #6366f1; border-radius: 4px; transition: width 0.5s; }
+.src-fill  { background: #10b981; }
+.bar-count { width: 60px; font-size: 0.8rem; color: #64748b; text-align: right; }
+
+/* 数据来源 */
+.source-list { display: flex; flex-direction: column; gap: 0.6rem; }
+.source-row  { display: flex; align-items: center; gap: 0.6rem; }
+.source-dot  { width: 8px; height: 8px; border-radius: 50%; background: #10b981; flex-shrink: 0; }
+.source-name { width: 90px; font-size: 0.8rem; color: #94a3b8; flex-shrink: 0; }
+.source-count { width: 80px; font-size: 0.78rem; color: #64748b; text-align: right; }
+
+/* 增长 */
+.window-switch { display: flex; gap: 0.25rem; }
+.win-btn {
+  padding: 0.2rem 0.6rem; border-radius: 5px; border: 1px solid #3d4168;
+  background: transparent; color: #64748b; cursor: pointer; font-size: 0.78rem;
+  transition: all 0.15s;
+}
+.win-btn.active { background: #6366f1; border-color: #6366f1; color: #fff; }
+.growth-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+.growth-item { text-align: center; background: #151825; border-radius: 8px; padding: 0.75rem; }
+.growth-count { font-size: 1.4rem; font-weight: 700; color: #4ade80; }
+.growth-label { font-size: 0.78rem; color: #64748b; margin-top: 0.2rem; }
+
+/* 队列状态 */
+.queue-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-top: 0.25rem; }
+.qs-item     { text-align: center; background: #151825; border-radius: 8px; padding: 0.875rem 0.5rem; }
+.qs-value    { font-size: 1.5rem; font-weight: 700; }
+.qs-label    { font-size: 0.78rem; color: #64748b; margin-top: 0.25rem; }
+
+@media (max-width: 1100px) {
+  .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .db-row      { grid-template-columns: 1fr; }
+}

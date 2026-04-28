@@ -1,32 +1,63 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import './ChatPage.css'
 
+interface GraphContext {
+  fault_name: string
+  summary_text: string
+  solutions: Array<{ name: string; description: string; data_source: string }>
+  sops: Array<{ title: string; version: string }>
+}
+
 interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
   loading?: boolean
+  graphCtx?: GraphContext | null
+  recommendations?: Array<{ fault_name: string; similarity: number; solutions: Array<{ name: string }> }>
 }
 
 const DIFY_API_KEY_ENV = import.meta.env.VITE_DIFY_API_KEY ?? ''
 const LS_KEY           = 'wisops_dify_api_key'
 const DIFY_BASE        = '/dify-api'
+const GRAPH_BASE       = '/graph-api'
+
+type ChatMode = 'rag' | 'graph' | 'auto'
 
 function uid() { return Math.random().toString(36).slice(2) }
+function loadKey() { return DIFY_API_KEY_ENV || localStorage.getItem(LS_KEY) || '' }
 
-function loadKey() {
-  return DIFY_API_KEY_ENV || localStorage.getItem(LS_KEY) || ''
+async function fetchGraphContext(query: string): Promise<{ ctx: GraphContext | null; recs: Message['recommendations'] }> {
+  try {
+    const [ctxRes, recRes] = await Promise.all([
+      fetch(`${GRAPH_BASE}/graph/context?fault_name=${encodeURIComponent(query)}`),
+      fetch(`${GRAPH_BASE}/graph/recommend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, top_k: 3 }),
+      }),
+    ])
+    const ctx = ctxRes.ok ? await ctxRes.json() : null
+    const rec = recRes.ok ? await recRes.json() : null
+    return {
+      ctx: ctx?.solutions?.length > 0 ? ctx : null,
+      recs: rec?.recommendations?.length > 0 ? rec.recommendations : undefined,
+    }
+  } catch {
+    return { ctx: null, recs: undefined }
+  }
 }
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([
-    { id: uid(), role: 'assistant', content: '你好！我是 WisOps 智能助手，可以帮你查询运维知识库。请描述你遇到的问题。' }
+    { id: uid(), role: 'assistant', content: '你好！我是 WisOps V2.0 智能助手，支持 RAG 知识库问答与图谱融合推荐。请描述你遇到的运维问题。' }
   ])
   const [input, setInput]       = useState('')
   const [loading, setLoading]   = useState(false)
   const [convId, setConvId]     = useState<string | undefined>()
   const [apiKey, setApiKey]     = useState(loadKey)
   const [showKey, setShowKey]   = useState(() => !loadKey())
+  const [mode, setMode]         = useState<ChatMode>('auto')
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef  = useRef<AbortController | null>(null)
 
@@ -47,9 +78,28 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMsg, asstMsg])
     setLoading(true)
 
+    // Graph-RAG 上下文预取（auto / graph 模式）
+    let graphCtx: GraphContext | null = null
+    let recs: Message['recommendations'] = undefined
+    if (mode === 'auto' || mode === 'graph') {
+      const result = await fetchGraphContext(text)
+      graphCtx = result.ctx
+      recs = result.recs
+      if (graphCtx || recs) {
+        setMessages((prev) => prev.map((m) =>
+          m.id === asstId ? { ...m, graphCtx, recommendations: recs } : m
+        ))
+      }
+    }
+
     abortRef.current = new AbortController()
 
     try {
+      // 若有图谱上下文，拼入 query 作为 Graph-RAG 增强
+      const enhancedQuery = graphCtx
+        ? `${text}\n\n---\n${graphCtx.summary_text}`
+        : text
+
       const res = await fetch(`${DIFY_BASE}/v1/chat-messages`, {
         method: 'POST',
         headers: {
@@ -58,7 +108,7 @@ export default function ChatPage() {
         },
         body: JSON.stringify({
           inputs: {},
-          query: text,
+          query: enhancedQuery,
           response_mode: 'streaming',
           conversation_id: convId ?? '',
           user: 'wisops-portal',
@@ -105,21 +155,24 @@ export default function ChatPage() {
 
       if (cid) setConvId(cid)
       setMessages((prev) =>
-        prev.map((m) => m.id === asstId ? { ...m, content: answer || '（无回复）', loading: false } : m)
+        prev.map((m) => m.id === asstId
+          ? { ...m, content: answer || '（无回复）', loading: false, graphCtx, recommendations: recs }
+          : m
+        )
       )
     } catch (e: unknown) {
       if (e instanceof Error && e.name === 'AbortError') return
       const msg = e instanceof Error ? e.message : '未知错误'
       setMessages((prev) =>
         prev.map((m) => m.id === asstId
-          ? { ...m, content: `❌ 请求失败：${msg}`, loading: false }
+          ? { ...m, content: `❌ 请求失败：${msg}`, loading: false, graphCtx: null }
           : m
         )
       )
     } finally {
       setLoading(false)
     }
-  }, [input, loading, apiKey, convId])
+  }, [input, loading, apiKey, convId, mode])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
@@ -131,8 +184,15 @@ export default function ChatPage() {
     abortRef.current?.abort()
   }
 
+  const MODE_LABELS: Record<ChatMode, string> = {
+    auto:  '🔀 自动',
+    rag:   '📚 纯 RAG',
+    graph: '🕸️ 图谱融合',
+  }
+
   return (
     <div className="chat-page">
+
       {/* Header */}
       <div className="chat-header">
         <div>
@@ -140,6 +200,18 @@ export default function ChatPage() {
           {convId && <span className="conv-id">会话 {convId.slice(0,8)}…</span>}
         </div>
         <div className="chat-actions">
+          <div className="mode-switch">
+            {(Object.keys(MODE_LABELS) as ChatMode[]).map((m) => (
+              <button
+                key={m}
+                className={`mode-btn ${mode === m ? 'active' : ''}`}
+                onClick={() => setMode(m)}
+                title={m === 'auto' ? '自动检测故障关键词，融合图谱上下文' : m === 'rag' ? '仅使用知识库检索' : '强制融合图谱上下文'}
+              >
+                {MODE_LABELS[m]}
+              </button>
+            ))}
+          </div>
           <button className="icon-btn" title="设置 API Key" onClick={() => setShowKey((v) => !v)}>🔑</button>
           <button className="icon-btn" title="清空会话" onClick={clearChat}>🗑️</button>
         </div>
@@ -168,9 +240,19 @@ export default function ChatPage() {
         {messages.map((m) => (
           <div key={m.id} className={`msg msg-${m.role}`}>
             <div className="msg-avatar">{m.role === 'user' ? '👤' : '🤖'}</div>
-            <div className="msg-bubble">
-              {m.content || (m.loading ? '' : '…')}
-              {m.loading && <span className="cursor-blink">▌</span>}
+            <div className="msg-wrap">
+              {/* 图谱摘要卡（仅 assistant） */}
+              {m.role === 'assistant' && m.graphCtx && (
+                <GraphContextCard ctx={m.graphCtx} />
+              )}
+              {/* 相似推荐卡 */}
+              {m.role === 'assistant' && m.recommendations && m.recommendations.length > 0 && (
+                <RecommendCard recs={m.recommendations} />
+              )}
+              <div className="msg-bubble">
+                {m.content || (m.loading ? '' : '…')}
+                {m.loading && <span className="cursor-blink">▌</span>}
+              </div>
             </div>
           </div>
         ))}
@@ -196,6 +278,65 @@ export default function ChatPage() {
           {loading ? '⏳' : '发送'}
         </button>
       </div>
+    </div>
+  )
+}
+
+function GraphContextCard({ ctx }: { ctx: GraphContext }) {
+  const [open, setOpen] = useState(true)
+  return (
+    <div className="graph-ctx-card">
+      <div className="ctx-header" onClick={() => setOpen((v) => !v)}>
+        <span className="ctx-badge">🕸️ 图谱知识</span>
+        <span className="ctx-fault">{ctx.fault_name}</span>
+        <span className="ctx-count">{ctx.solutions.length} 条方案</span>
+        <span className="ctx-toggle">{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <div className="ctx-body">
+          {ctx.solutions.slice(0, 3).map((s, i) => (
+            <div key={i} className="ctx-sol">
+              <span className="ctx-sol-num">{i + 1}</span>
+              <div>
+                <div className="ctx-sol-name">{s.name}</div>
+                {s.description && <div className="ctx-sol-desc">{s.description.slice(0, 120)}{s.description.length > 120 ? '…' : ''}</div>}
+              </div>
+              <span className="ctx-src">{s.data_source}</span>
+            </div>
+          ))}
+          {ctx.sops.length > 0 && (
+            <div className="ctx-sop">📋 关联 SOP：{ctx.sops[0].title}（v{ctx.sops[0].version}）</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RecommendCard({ recs }: { recs: NonNullable<Message['recommendations']> }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rec-card">
+      <div className="ctx-header" onClick={() => setOpen((v) => !v)}>
+        <span className="ctx-badge rec-badge">💡 相似故障推荐</span>
+        <span className="ctx-count">{recs.length} 条</span>
+        <span className="ctx-toggle">{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <div className="ctx-body">
+          {recs.map((r, i) => (
+            <div key={i} className="rec-item">
+              <span className="rec-score">{Math.round(r.similarity * 100)}%</span>
+              <div>
+                <div className="ctx-sol-name">{r.fault_name}</div>
+                {r.solutions.length > 0 && (
+                  <div className="ctx-sol-desc">{r.solutions.map(s => s.name).join(' · ')}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,0 +1,100 @@
+.sop-page { display: flex; flex-direction: column; height: 100%; }
+
+.sop-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.25rem 1.5rem; border-bottom: 1px solid #2d3148; flex-shrink: 0;
+}
+.sop-title { font-size: 1.1rem; font-weight: 600; color: #e2e8f0; }
+.sop-tabs  { display: flex; gap: 0.5rem; }
+
+.tab {
+  padding: 0.35rem 1rem; border-radius: 6px; border: 1px solid #3d4168;
+  background: transparent; color: #94a3b8; cursor: pointer; font-size: 0.875rem;
+  transition: all 0.15s;
+}
+.tab:hover  { border-color: #6366f1; color: #e2e8f0; }
+.tab.active { background: #6366f1; border-color: #6366f1; color: #fff; }
+
+.sop-body  { flex: 1; overflow-y: auto; padding: 1.5rem; }
+.panel     { display: flex; flex-direction: column; gap: 1.25rem; max-width: 800px; }
+.loading   { color: #64748b; text-align: center; padding: 3rem; }
+.empty     { color: #475569; text-align: center; padding: 3rem; }
+
+.list-toolbar { display: flex; gap: 0.75rem; }
+.text-input {
+  flex: 1; background: #1a1d2e; border: 1px solid #3d4168; border-radius: 8px;
+  color: #e2e8f0; padding: 0.5rem 0.875rem; font-size: 0.875rem;
+}
+.text-input:focus { outline: none; border-color: #6366f1; }
+
+.btn-primary {
+  padding: 0.5rem 1.25rem; background: #6366f1; color: #fff; border: none;
+  border-radius: 8px; cursor: pointer; font-size: 0.875rem; font-weight: 500;
+  white-space: nowrap; transition: background 0.15s;
+}
+.btn-primary:hover:not(:disabled) { background: #4f52d4; }
+.btn-primary:disabled              { opacity: 0.5; cursor: not-allowed; }
+
+.btn-outline {
+  padding: 0.45rem 1rem; background: transparent; color: #94a3b8;
+  border: 1px solid #3d4168; border-radius: 8px; cursor: pointer; font-size: 0.875rem;
+  transition: all 0.15s;
+}
+.btn-outline:hover { border-color: #6366f1; color: #e2e8f0; }
+
+.btn-sm {
+  padding: 0.25rem 0.7rem; background: transparent; color: #94a3b8;
+  border: 1px solid #3d4168; border-radius: 6px; cursor: pointer; font-size: 0.8rem;
+  transition: all 0.15s; white-space: nowrap;
+}
+.btn-sm:hover { border-color: #6366f1; color: #a5b4fc; }
+
+/* SOP 列表 */
+.sop-list { display: flex; flex-direction: column; gap: 0.875rem; }
+.sop-card {
+  background: #1e2130; border: 1px solid #2d3148; border-radius: 12px; overflow: hidden;
+}
+.sop-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1.25rem; cursor: pointer; transition: background 0.15s;
+}
+.sop-card-header:hover { background: #242840; }
+
+.sop-card-left  { display: flex; align-items: flex-start; gap: 0.75rem; }
+.sop-icon       { font-size: 1.25rem; flex-shrink: 0; margin-top: 0.1rem; }
+.sop-card-title { font-size: 0.95rem; font-weight: 600; color: #e2e8f0; }
+.sop-card-meta  { font-size: 0.78rem; color: #64748b; margin-top: 0.25rem; }
+.source-tag     { color: #6366f1; }
+
+.sop-card-right { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
+.expand-icon    { color: #64748b; font-size: 0.75rem; }
+
+.sop-steps  { padding: 0.875rem 1.25rem 1.25rem; border-top: 1px solid #2d3148; background: #161925; }
+.steps-title { font-size: 0.8rem; color: #64748b; margin-bottom: 0.5rem; }
+.steps-list  { margin: 0; padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.step-item   { font-size: 0.875rem; color: #cbd5e1; line-height: 1.6; }
+
+/* SOP 表单 */
+.form-grid   { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.form-field  { display: flex; flex-direction: column; gap: 0.4rem; grid-column: span 2; }
+.form-field.half { grid-column: span 1; }
+.form-label  { font-size: 0.82rem; color: #64748b; font-weight: 500; }
+
+.steps-section { display: flex; flex-direction: column; gap: 0.75rem; }
+.steps-header  { display: flex; align-items: center; justify-content: space-between; }
+.steps-editor  { display: flex; flex-direction: column; gap: 0.5rem; }
+.step-row      { display: flex; align-items: center; gap: 0.75rem; }
+.step-num {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: #6366f1; color: #fff; font-size: 0.75rem;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.btn-del {
+  background: transparent; border: none; color: #64748b;
+  cursor: pointer; font-size: 1rem; padding: 0.25rem; transition: color 0.15s; flex-shrink: 0;
+}
+.btn-del:hover { color: #f87171; }
+
+.form-actions { display: flex; gap: 0.75rem; }
+.msg-ok    { color: #34d399; font-size: 0.875rem; }
+.msg-error { color: #f87171; font-size: 0.875rem; }

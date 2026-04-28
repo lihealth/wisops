@@ -4,12 +4,12 @@ services:
     image: postgres:15-alpine
     container_name: wisops-pg
     environment:
-      POSTGRES_PASSWORD: wisops123
-      POSTGRES_DB: wisops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wisops123}
+      POSTGRES_DB: ${POSTGRES_DB:-wisops}
     volumes:
       - pg_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"          # 避免与现有5432冲突
+      - "5433:5432"
     restart: unless-stopped
 
   # Redis
@@ -18,7 +18,7 @@ services:
     container_name: wisops-redis
     command: redis-server --bind 0.0.0.0
     ports:
-      - "6380:6379"          # 避免与现有6379冲突
+      - "6380:6379"
     restart: unless-stopped
 
   # Qdrant
@@ -28,7 +28,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     ports:
-      - "6334:6333"          # 避免与现有6333冲突
+      - "6334:6333"
     restart: unless-stopped
 
   # HugeGraph
@@ -38,7 +38,7 @@ services:
     environment:
       - HUGEGRAPH_IP=0.0.0.0
     ports:
-      - "8081:8080"          # 避免与现有8080冲突
+      - "8081:8080"
     volumes:
       - hugegraph_data:/var/lib/hugegraph
     restart: unless-stopped
@@ -50,21 +50,21 @@ services:
     environment:
       - MODE=api
       - DB_USERNAME=postgres
-      - DB_PASSWORD=wisops123
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-wisops123}
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_DATABASE=wisops
+      - DB_DATABASE=${POSTGRES_DB:-wisops}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - REDIS_USE_SSL=false
       - STORAGE_TYPE=local
       - STORAGE_LOCAL_PATH=storage
       - VECTOR_STORE=qdrant
       - QDRANT_URL=http://qdrant:6333
-      - SECRET_KEY=wisops-secret-key
-      - CONSOLE_WEB_URL=http://localhost:8090
-      - APP_WEB_URL=http://localhost:8090
+      - SECRET_KEY=${SECRET_KEY:-wisops-secret-key-change-in-production}
+      - CONSOLE_WEB_URL=${CONSOLE_API_URL:-http://localhost:8090}
+      - APP_WEB_URL=${APP_API_URL:-http://localhost:8090}
       - MIGRATION_ENABLED=true
       - CELERY_ALWAYS_EAGER=True
       - CELERY_TASK_EAGER_PROPAGATES=True
@@ -79,7 +79,7 @@ services:
     volumes:
       - api_storage:/app/api/storage
     ports:
-      - "5002:5001"          # 避免与现有5001冲突
+      - "5002:5001"
     restart: unless-stopped
 
   # Dify Worker
@@ -89,19 +89,19 @@ services:
     environment:
       - MODE=worker
       - DB_USERNAME=postgres
-      - DB_PASSWORD=wisops123
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-wisops123}
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_DATABASE=wisops
+      - DB_DATABASE=${POSTGRES_DB:-wisops}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - REDIS_USE_SSL=false
       - STORAGE_TYPE=local
       - STORAGE_LOCAL_PATH=storage
       - VECTOR_STORE=qdrant
       - QDRANT_URL=http://qdrant:6333
-      - SECRET_KEY=wisops-secret-key
+      - SECRET_KEY=${SECRET_KEY:-wisops-secret-key-change-in-production}
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - LOG_LEVEL=INFO
@@ -119,17 +119,19 @@ services:
     image: langgenius/dify-web:0.12.1
     container_name: wisops-web
     environment:
-      - CONSOLE_API_URL=http://localhost:5002
-      - APP_API_URL=http://localhost:5002
-      - NEXT_PUBLIC_CONSOLE_API_URL=http://localhost:5002
-      - NEXT_PUBLIC_APP_API_URL=http://localhost:5002
+      - CONSOLE_API_URL=${CONSOLE_API_URL:-http://localhost:5002}
+      - APP_API_URL=${APP_API_URL:-http://localhost:5002}
+      - NEXT_PUBLIC_CONSOLE_API_URL=${CONSOLE_API_URL:-http://localhost:5002}
+      - NEXT_PUBLIC_APP_API_URL=${APP_API_URL:-http://localhost:5002}
     ports:
-      - "8281:3000"          # 使用8281端口，与现有8280区分
+      - "8281:3000"
     depends_on:
       - api
     restart: unless-stopped
 
-  # 自研图谱查询 API
+  # ── Graph Profile 服务（按需启用） ────────────────────────────────────────
+
+  # 图谱查询 API V2.0
   graph-api:
     build: ./graph-api
     container_name: wisops-graph-api
@@ -137,14 +139,16 @@ services:
       - graph
     environment:
       - HUGEGRAPH_URL=http://hugegraph:8080
-      - HUGEGRAPH_GRAPH=hugegraph
+      - HUGEGRAPH_GRAPH=${HUGEGRAPH_GRAPH:-hugegraph}
+      - LLM_API_URL=${LLM_API_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
     ports:
       - "8002:8000"
     depends_on:
       - hugegraph
     restart: unless-stopped
 
-  # 图谱管理前端（保留，供独立调试）
+  # 图谱管理前端（独立调试用）
   graph-ui:
     build: ./graph-ui
     container_name: wisops-graph-ui
@@ -154,14 +158,17 @@ services:
       - graph-api
     restart: unless-stopped
 
-  # WisOps Portal（自建前端，统一入口）
+  # WisOps Portal V2.0（统一入口）
   portal:
-    build: ./wisops-portal
+    build:
+      context: ./wisops-portal
+      args:
+        - VITE_DIFY_API_KEY=${VITE_DIFY_API_KEY:-}
     container_name: wisops-portal
     profiles:
       - graph
     ports:
-      - "8090:80"           # 统一访问入口：http://localhost:8090
+      - "8090:80"
     depends_on:
       - api
       - graph-api

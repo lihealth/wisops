@@ -132,6 +132,14 @@ if (g.V(f).outE('HAS_SOLUTION').where(inV().is(s)).hasNext()) {
     return {"status": "ok", "edge_status": state}
 
 
+@app.get("/graph/faults")
+def list_faults() -> Dict[str, Any]:
+    script = "g.V().hasLabel('Fault').values('name').order()"
+    result = execute_gremlin(script)
+    faults = _extract_data(result)
+    return {"faults": faults, "count": len(faults)}
+
+
 @app.get("/graph/query")
 def query_solutions(fault_name: str) -> Dict[str, Any]:
     if not fault_name.strip():

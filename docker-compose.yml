@@ -144,6 +144,18 @@ services:
       - hugegraph
     restart: unless-stopped
 
+  # 图谱管理前端
+  graph-ui:
+    build: ./graph-ui
+    container_name: wisops-graph-ui
+    profiles:
+      - graph
+    ports:
+      - "8282:80"           # 访问地址：http://localhost:8282
+    depends_on:
+      - graph-api
+    restart: unless-stopped
+
 volumes:
   pg_data:
   qdrant_data:

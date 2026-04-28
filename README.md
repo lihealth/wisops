@@ -12,10 +12,23 @@ WisOps 是一个面向智能运维场景的融合式平台，当前版本聚焦�
 ```text
 wisops/
 ├─ docker-compose.yml
-└─ graph-api/
-   ├─ Dockerfile
-   ├─ main.py
-   └─ requirements.txt
+├─ start.ps1
+├─ stop.ps1
+├─ .env.example
+├─ graph-api/
+│  ├─ Dockerfile
+│  ├─ main.py
+│  └─ requirements.txt
+├─ graph-ui/
+│  ├─ Dockerfile
+│  ├─ nginx.conf
+│  ├─ package.json
+│  └─ src/
+├─ scripts/
+│  └─ import_faults.py
+└─ data/
+   ├─ faults_sample.json
+   └─ faults_extended.json
 ```
 
 ## 2. 运行环境
@@ -26,12 +39,18 @@ wisops/
 
 ## 3. 快速启动（推荐）
 
-在项目根目录执行：
+在项目根目录执行（核心服务）：
 
 ```powershell
 cd C:\Users\lijian22\wisops
 docker compose up -d
 docker compose ps
+```
+
+或使用脚本：
+
+```powershell
+.\start.ps1
 ```
 
 默认会启动核心服务：
@@ -59,24 +78,33 @@ docker compose ps
 
 如果以上 4 步均正常，说明 RAG 主链路可用。
 
-## 5. 图谱服务（graph-api）
+## 5. 图谱服务（graph-api + graph-ui）
 
-> 当前配置为按需启用，不会默认随 `docker compose up -d` 启动。
+> 图谱相关服务按需启用，不会默认随 `docker compose up -d` 启动。
 
 启用命令：
 
 ```powershell
-docker compose --profile graph up -d --build graph-api
+docker compose --profile graph up -d --build
+```
+
+或使用脚本：
+
+```powershell
+.\start.ps1 -Graph -Build
 ```
 
 服务地址：
 
 - Graph API: [http://localhost:8002](http://localhost:8002)
+- Graph API Docs: [http://localhost:8002/docs](http://localhost:8002/docs)
+- Graph UI: [http://localhost:8282](http://localhost:8282)
 
 接口：
 
 - `GET /health`
 - `POST /graph/add`
+- `GET /graph/faults`
 - `GET /graph/query?fault_name=...`
 
 ### 5.1 示例请求
@@ -121,6 +149,20 @@ docker compose up -d api
 
 ```powershell
 docker compose down
+```
+
+使用脚本停止：
+
+```powershell
+.\stop.ps1              # 保留数据卷
+.\stop.ps1 -WithVolumes # 删除数据卷（危险操作）
+```
+
+批量导入图谱样本数据：
+
+```powershell
+python scripts/import_faults.py data/faults_sample.json --api-url http://localhost:8002/graph/add
+python scripts/import_faults.py data/faults_extended.json --api-url http://localhost:8002/graph/add
 ```
 
 ## 7. 常见问题排查
@@ -176,11 +218,12 @@ docker compose --profile graph up -d --build graph-api
 
 - 当前密码和密钥为开发环境占位值，仅用于本地测试
 - 进入演示/交付环境前，请替换数据库密码与 `SECRET_KEY`
-- 建议后续引入 `.env` 管理敏感配置
+- 请使用 `.env.example` 复制生成 `.env`，并在本地填写真实密钥
+- `.env` 已加入 `.gitignore`，禁止提交敏感配置
 
 ## 9. 后续建议
 
-- 补充 `start.ps1` / `stop.ps1` 脚本，统一启动流程
-- 增加“部署成功检查清单”
-- 补充 API 文档（graph-api 的请求/响应示例）
+- 扩量导入 Dify 知识库数据到 500+ 片段
+- 补充“部署成功检查清单”
+- 完善用户手册与演示脚本
 

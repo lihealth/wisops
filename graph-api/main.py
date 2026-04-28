@@ -39,6 +39,15 @@ def _candidate_gremlin_endpoints() -> List[str]:
 def execute_gremlin(gremlin: str, bindings: Dict[str, Any] | None = None) -> Dict[str, Any]:
     global _ACTIVE_GREMLIN_ENDPOINT
 
+    # HugeGraph 全局 Gremlin context 中没有 graph/g，需要用具体图名
+    # 例如默认图名是 "hugegraph"，则 hugegraph.traversal()
+    gremlin = gremlin.replace("graph.traversal()", f"{HUGEGRAPH_GRAPH}.traversal()")
+    gremlin = gremlin.replace("graph.schema()", f"{HUGEGRAPH_GRAPH}.schema()")
+
+    # 在普通查询脚本前自动注入 g
+    if "traversal()" not in gremlin and "schema()" not in gremlin:
+        gremlin = f"def g = {HUGEGRAPH_GRAPH}.traversal();\n" + gremlin
+
     endpoints = [_ACTIVE_GREMLIN_ENDPOINT] if _ACTIVE_GREMLIN_ENDPOINT else []
     endpoints.extend([ep for ep in _candidate_gremlin_endpoints() if ep != _ACTIVE_GREMLIN_ENDPOINT])
 
@@ -107,15 +116,16 @@ def health() -> Dict[str, str]:
 def add_relation(payload: AddRelationRequest) -> Dict[str, Any]:
     ensure_schema()
     add_script = """
-f = g.V().hasLabel('Fault').has('name', fault_name).fold().
-      coalesce(unfold(), addV('Fault').property('name', fault_name)).next()
-s = g.V().hasLabel('Solution').has('name', solution_name).fold().
-      coalesce(unfold(),
-               addV('Solution').property('name', solution_name).property('description', solution_description)).next()
-if (g.V(f).outE('HAS_SOLUTION').where(inV().is(s)).hasNext()) {
+def f = g.V().hasLabel('Fault').has('name', fault_name).fold().
+      coalesce(__.unfold(), __.addV('Fault').property('name', fault_name)).next()
+def s = g.V().hasLabel('Solution').has('name', solution_name).fold().
+      coalesce(__.unfold(),
+               __.addV('Solution').property('name', solution_name).property('description', solution_description)).next()
+def sid = s.id()
+if (g.V(f).outE('HAS_SOLUTION').where(__.inV().hasId(sid)).hasNext()) {
   'exists'
 } else {
-  g.V(f).addE('HAS_SOLUTION').to(g.V(s)).next()
+  g.V(f).as('a').V(sid).addE('HAS_SOLUTION').from('a').next()
   'created'
 }
 """

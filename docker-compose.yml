@@ -144,7 +144,7 @@ services:
       - hugegraph
     restart: unless-stopped
 
-  # 图谱管理前端
+  # 图谱管理前端（保留，供独立调试）
   graph-ui:
     build: ./graph-ui
     container_name: wisops-graph-ui
@@ -154,17 +154,16 @@ services:
       - graph-api
     restart: unless-stopped
 
-  # 统一网关（Dify + 图谱 UI + 图谱 API 聚合入口）
-  gateway:
-    build: ./gateway
-    container_name: wisops-gateway
+  # WisOps Portal（自建前端，统一入口）
+  portal:
+    build: ./wisops-portal
+    container_name: wisops-portal
     profiles:
       - graph
     ports:
       - "8090:80"           # 统一访问入口：http://localhost:8090
     depends_on:
-      - web
-      - graph-ui
+      - api
       - graph-api
     restart: unless-stopped
 

@@ -161,7 +161,7 @@ services:
     profiles:
       - graph
     ports:
-      - "8280:80"           # 统一访问入口：http://localhost:8280
+      - "8090:80"           # 统一访问入口：http://localhost:8090
     depends_on:
       - web
       - graph-ui

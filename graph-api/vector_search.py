@@ -24,9 +24,32 @@ GremlinFn = Callable[[str, Optional[Dict[str, Any]]], Dict[str, Any]]
 ExtractFn = Callable[[Dict[str, Any]], List[Any]]
 
 
+def _openai_api_origin(url: str) -> str:
+    """
+    从「根地址 / …/v1 / …/chat/completions」等推到用于拼 `/v1/embeddings` 的 origin（末尾不含 /v1）。
+    例：https://api.openai.com/v1/chat/completions -> https://api.openai.com
+    """
+    u = (url or "").strip().rstrip("/")
+    if not u:
+        return ""
+    low = u.lower()
+    for suf in ("/v1/chat/completions", "/chat/completions"):
+        if low.endswith(suf):
+            u = u[: -len(suf)].rstrip("/")
+            low = u.lower()
+            break
+    if low.endswith("/v1/embeddings"):
+        u = u[: -len("/v1/embeddings")].rstrip("/")
+        low = u.lower()
+    if low.endswith("/v1"):
+        u = u[:-3].rstrip("/")
+    return u
+
+
 def _embedding_base_url() -> str:
-    base = EMBEDDING_API_URL or os.getenv("LLM_API_URL", "").rstrip("/")
-    return base
+    """用于拼 {origin}/v1/embeddings；优先 EMBEDDING_API_URL，否则从 LLM_API_URL 推导。"""
+    raw = (EMBEDDING_API_URL or os.getenv("LLM_API_URL", "")).strip()
+    return _openai_api_origin(raw)
 
 
 def _embedding_auth_header() -> str:
@@ -57,7 +80,7 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
     if not base or not key:
         raise RuntimeError("Embedding API URL 或 API Key 未配置（EMBEDDING_* 或 LLM_*）")
 
-    url = f"{base}/v1/embeddings"
+    url = f"{base.rstrip('/')}/v1/embeddings"
     resp = requests.post(
         url,
         headers={

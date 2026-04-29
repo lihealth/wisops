@@ -253,6 +253,30 @@ function formatEdgeRelationLabel(raw: string): string {
   return t
 }
 
+/** 保证圆周不相贴、长标签中间有留白；多方案时相邻方案圆也不互压 */
+function computeSpokeLayoutRadius(
+  solutionCount: number,
+  faultR: number,
+  solR: number,
+  surfaceGap: number,
+): number {
+  const minRadial = faultR + solR + surfaceGap
+  if (solutionCount <= 0) return minRadial
+  if (solutionCount === 1) {
+    return Math.max(minRadial, faultR + solR + 115)
+  }
+  const minChord = 2 * solR + 52
+  const angleHalf = Math.PI / solutionCount
+  const chord = (rad: number) => 2 * rad * Math.sin(angleHalf)
+  let r = minRadial
+  let guard = 0
+  while (chord(r) < minChord && r < 360 && guard < 40) {
+    r += 10
+    guard += 1
+  }
+  return Math.min(Math.max(r, minRadial), 300)
+}
+
 /** 从圆心连线缩短到圆周，便于画边与标签 */
 function shortenChord(
   cx: number,
@@ -317,14 +341,14 @@ function VisualPanel() {
 
   const fault = nodes.find((n) => n.type === 'Fault')
   const solutions = nodes.filter((n) => n.type === 'Solution')
-  const vbW = 820
-  const vbH = 480
+  const vbW = 880
+  const vbH = 500
   const centerX = vbW / 2
-  const centerY = vbH / 2 - 10
-  const radius = Math.min(168, 110 + solutions.length * 12)
-  const faultR = 56
-  const solR = 46
-  const labelOffset = 36
+  const centerY = vbH / 2 - 6
+  const faultR = 52
+  const solR = 44
+  const radius = computeSpokeLayoutRadius(solutions.length, faultR, solR, 72)
+  const labelOffset = 40
 
   return (
     <div className="panel visual-panel">

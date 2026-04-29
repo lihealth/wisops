@@ -29,34 +29,60 @@ function loadKey() { return DIFY_API_KEY_ENV || localStorage.getItem(LS_KEY) || 
 
 async function fetchGraphContext(query: string): Promise<{ ctx: GraphContext | null; recs: Message['recommendations'] }> {
   try {
-    const [ctxRes, recRes] = await Promise.all([
-      fetch(`${GRAPH_BASE}/graph/context?fault_name=${encodeURIComponent(query)}`),
-      fetch(`${GRAPH_BASE}/graph/recommend`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, top_k: 3 }),
-      }),
-    ])
-    const ctx = ctxRes.ok ? await ctxRes.json() : null
+    const recRes = await fetch(`${GRAPH_BASE}/graph/recommend`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, top_k: 5 }),
+    })
     const rec = recRes.ok ? await recRes.json() : null
-    return {
-      ctx: ctx?.solutions?.length > 0 ? ctx : null,
-      recs: rec?.recommendations?.length > 0 ? rec.recommendations : undefined,
-    }
+    const recs = rec?.recommendations?.length > 0 ? rec.recommendations : undefined
+    const faultForCtx = (recs?.[0]?.fault_name?.trim() || query).trim()
+    const ctxRes = await fetch(`${GRAPH_BASE}/graph/context?fault_name=${encodeURIComponent(faultForCtx)}`)
+    const raw = ctxRes.ok ? await ctxRes.json() : null
+    const ctx = raw?.solutions?.length > 0 ? raw : null
+    return { ctx, recs }
   } catch {
     return { ctx: null, recs: undefined }
   }
 }
 
+function buildGraphOnlyAssistantText(
+  query: string,
+  ctx: GraphContext | null,
+  recs: Message['recommendations'],
+): string {
+  const lines: string[] = []
+  lines.push('当前未配置 Dify API Key，以下为图谱检索结果（无知识库流式回答）。可在右上角 🔑 填入 Key 后使用完整 RAG。')
+  lines.push('')
+  if (ctx?.summary_text) {
+    lines.push(ctx.summary_text)
+  }
+  if (recs?.length) {
+    lines.push('')
+    lines.push('—— 相似故障参考 ——')
+    recs.forEach((r, i) => {
+      const pct = Number.isFinite(r.similarity) ? `${Math.round(r.similarity * 100)}%` : ''
+      lines.push(`${i + 1}. ${r.fault_name}${pct ? `（相似度 ${pct}）` : ''}`)
+      if (r.solutions?.length) {
+        lines.push(`   方案：${r.solutions.map((s) => s.name).join(' · ')}`)
+      }
+    })
+  }
+  if (!ctx?.summary_text && !recs?.length) {
+    lines.push(`未在图谱中命中与「${query.slice(0, 80)}」相关的摘要或相似故障，可换关键词重试。`)
+  }
+  return lines.join('\n')
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([
-    { id: uid(), role: 'assistant', content: '你好！我是 WisOps V2.0 智能助手，支持 RAG 知识库问答与图谱融合推荐。请描述你遇到的运维问题。' }
+    { id: uid(), role: 'assistant', content: '你好！我是 WisOps V2.0 智能助手。可选「图谱融合 / 自动」仅使用图谱相似推荐与摘要（无需 Dify）；配置右上角 🔑 后可使用完整知识库 RAG。请描述你的运维问题。' }
   ])
   const [input, setInput]       = useState('')
   const [loading, setLoading]   = useState(false)
   const [convId, setConvId]     = useState<string | undefined>()
   const [apiKey, setApiKey]     = useState(loadKey)
-  const [showKey, setShowKey]   = useState(() => !loadKey())
+  const [showKey, setShowKey]   = useState(false)
   const [mode, setMode]         = useState<ChatMode>('auto')
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef  = useRef<AbortController | null>(null)
@@ -68,7 +94,10 @@ export default function ChatPage() {
   const sendMessage = useCallback(async () => {
     const text = input.trim()
     if (!text || loading) return
-    if (!apiKey) { setShowKey(true); return }
+    if (!apiKey && mode === 'rag') {
+      setShowKey(true)
+      return
+    }
 
     setInput('')
     const userMsg: Message = { id: uid(), role: 'user', content: text }
@@ -90,6 +119,20 @@ export default function ChatPage() {
           m.id === asstId ? { ...m, graphCtx, recommendations: recs } : m
         ))
       }
+    }
+
+    // 无 Dify Key：仅图谱模式可用，直接展示检索文案与卡片，不调知识库
+    if (!apiKey && (mode === 'auto' || mode === 'graph')) {
+      const body = buildGraphOnlyAssistantText(text, graphCtx, recs)
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === asstId
+            ? { ...m, content: body, loading: false, graphCtx, recommendations: recs }
+            : m
+        )
+      )
+      setLoading(false)
+      return
     }
 
     abortRef.current = new AbortController()

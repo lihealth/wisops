@@ -7,7 +7,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 import requests
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import Body, FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 
 app = FastAPI(
@@ -86,6 +86,41 @@ class ExtractSubmitRequest(BaseModel):
 class RecommendRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=1000)
     top_k: int = Field(default=5, ge=1, le=20)
+
+
+class CategorySeed(BaseModel):
+    code:   str = Field(..., min_length=1, max_length=64)
+    name:   str = Field(..., min_length=1, max_length=200)
+    domain: str = Field(default="", max_length=200)
+
+
+class CategoriesBootstrapRequest(BaseModel):
+    """留空 categories 时使用内置 ITIL 风格分类"""
+    categories: Optional[List[CategorySeed]] = None
+
+
+# 内置分类（与 Fault.domain 常见取值对齐，code 主键）
+DEFAULT_ITIL_CATEGORIES: List[Dict[str, str]] = [
+    {"code": "CAT-APP",  "name": "应用",     "domain": "Application"},
+    {"code": "CAT-DB",   "name": "数据库",   "domain": "Database"},
+    {"code": "CAT-STOR", "name": "存储",     "domain": "Storage"},
+    {"code": "CAT-SEC",  "name": "安全",     "domain": "Security"},
+    {"code": "CAT-NET",  "name": "网络",     "domain": "Network"},
+    {"code": "CAT-MW",   "name": "中间件",   "domain": "Middleware"},
+    {"code": "CAT-K8S",  "name": "Kubernetes", "domain": "Kubernetes"},
+    {"code": "CAT-GEN",  "name": "通用",     "domain": ""},
+]
+
+# Fault 顶点 domain 属性 → Category.code
+DOMAIN_TO_CATEGORY_CODE: Dict[str, str] = {
+    "Application": "CAT-APP",
+    "Database":    "CAT-DB",
+    "Storage":     "CAT-STOR",
+    "Security":    "CAT-SEC",
+    "Network":     "CAT-NET",
+    "Middleware":  "CAT-MW",
+    "Kubernetes":  "CAT-K8S",
+}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -284,6 +319,168 @@ def admin_schema_init() -> Dict[str, Any]:
     """手动触发 V2 Schema 初始化（暴露详细错误）"""
     ensure_schema_v2()
     return {"status": "ok"}
+
+
+def _upsert_category(code: str, name: str, domain: str) -> str:
+    find = execute_gremlin(
+        "g.V().hasLabel('Category').has('code', ccode).id()",
+        {"ccode": code},
+    )
+    ids = _extract_data(find)
+    if ids:
+        return str(ids[0])
+    result = execute_gremlin(
+        "g.addV('Category').property('code', ccode).property('name', cname).property('domain', cdom).id()",
+        {"ccode": code, "cname": name, "cdom": domain},
+    )
+    ids = _extract_data(result)
+    return str(ids[0]) if ids else ""
+
+
+def _link_classified_as(fault_vid: str, category_vid: str, ts: int) -> bool:
+    chk = execute_gremlin(
+        "g.V(fvid).outE('CLASSIFIED_AS').where(__.inV().hasId(cid)).count()",
+        {"fvid": fault_vid, "cid": category_vid},
+    )
+    if (_extract_data(chk) or [0])[0] > 0:
+        return False
+    execute_gremlin(
+        "def fv = g.V(fvid).next(); def cv = g.V(cid).next(); "
+        "g.addE('CLASSIFIED_AS').from(fv).to(cv).property('created_at', ts).iterate()",
+        {"fvid": fault_vid, "cid": category_vid, "ts": ts},
+    )
+    return True
+
+
+@app.post("/admin/categories/init")
+def admin_categories_init(
+    payload: Optional[CategoriesBootstrapRequest] = Body(default=None),
+) -> Dict[str, Any]:
+    """
+    幂等：写入 Category 顶点，并按 Fault.domain 补 CLASSIFIED_AS 边。
+    Body 可选：{"categories":[{"code":"...","name":"...","domain":"..."}]}
+    """
+    ensure_schema_v2()
+    now = int(time.time() * 1000)
+    if payload and payload.categories:
+        seeds = payload.categories
+    else:
+        seeds = [CategorySeed(**c) for c in DEFAULT_ITIL_CATEGORIES]
+
+    cat_ids: Dict[str, str] = {}
+    for s in seeds:
+        cid = _upsert_category(s.code, s.name, s.domain)
+        if cid:
+            cat_ids[s.code] = cid
+
+    linked = 0
+    fault_rows = _extract_data(
+        execute_gremlin(
+            "g.V().hasLabel('Fault').project('vid','dom').by(id()).by(coalesce(values('domain'), constant('')))"
+        )
+    )
+    for row in fault_rows or []:
+        if not isinstance(row, dict):
+            continue
+        fvid = str(row.get("vid", ""))
+        dom  = (row.get("dom") or "").strip()
+        code = DOMAIN_TO_CATEGORY_CODE.get(dom, "CAT-GEN")
+        cid  = cat_ids.get(code) or cat_ids.get("CAT-GEN")
+        if fvid and cid and _link_classified_as(fvid, cid, now):
+            linked += 1
+
+    return {
+        "status":           "ok",
+        "categories_upserted": len(seeds),
+        "classified_as_created": linked,
+    }
+
+
+def _score_alert_fault_match(content: str, fault_name: str) -> float:
+    if not content or not fault_name:
+        return 0.0
+    c = content.lower()
+    base = re.sub(r"[（(][^)）]*[)）]", "", fault_name).strip().lower()
+    if base and len(base) >= 3 and base in c:
+        return 1.0
+    if fault_name.lower() in c:
+        return 0.95
+    for w in re.findall(r"[a-z]{3,}", fault_name.lower()):
+        if len(w) >= 4 and w in c:
+            return 0.85
+    zh = re.sub(r"[^\u4e00-\u9fff]+", "", fault_name)
+    if len(zh) >= 4:
+        for i in range(0, len(zh) - 3):
+            if zh[i : i + 4] in content:
+                return 0.75
+    return 0.0
+
+
+@app.post("/admin/triggers/sync")
+def admin_triggers_sync(top_k_per_alert: int = 2) -> Dict[str, Any]:
+    """
+    按告警文本与故障名模糊匹配，批量补 TRIGGERS 边（幂等，已存在则跳过）。
+    top_k_per_alert：每条告警最多关联几条故障（query，默认 2，最大 5）。
+    """
+    ensure_schema_v2()
+    now = int(time.time() * 1000)
+    top_k = max(1, min(int(top_k_per_alert), 5))
+
+    faults_raw = _extract_data(
+        execute_gremlin(
+            "g.V().hasLabel('Fault').project('vid','name').by(id()).by(values('name'))"
+        )
+    )
+    faults: List[Dict[str, str]] = []
+    for row in faults_raw or []:
+        if isinstance(row, dict) and row.get("vid") and row.get("name"):
+            faults.append({"vid": str(row["vid"]), "name": str(row["name"])})
+
+    alerts_raw = _extract_data(
+        execute_gremlin(
+            "g.V().hasLabel('Alert').project('vid','c').by(id()).by(coalesce(values('content'), constant('')))"
+        )
+    )
+    alerts: List[Dict[str, str]] = []
+    for row in alerts_raw or []:
+        if isinstance(row, dict) and row.get("vid"):
+            alerts.append({"vid": str(row["vid"]), "c": str(row.get("c") or "")})
+
+    created = 0
+    skipped = 0
+    for al in alerts:
+        content = al["c"]
+        scored: List[tuple] = []
+        for f in faults:
+            sc = _score_alert_fault_match(content, f["name"])
+            if sc >= 0.72:
+                scored.append((sc, f["vid"]))
+        scored.sort(key=lambda x: -x[0])
+        for _, fvid in scored[:top_k]:
+            chk = execute_gremlin(
+                "g.V(aid).outE('TRIGGERS').where(__.inV().hasId(fid)).count()",
+                {"aid": al["vid"], "fid": fvid},
+            )
+            if (_extract_data(chk) or [0])[0] > 0:
+                skipped += 1
+                continue
+            try:
+                execute_gremlin(
+                    "def av = g.V(aid).next(); def fv = g.V(fid).next(); "
+                    "g.addE('TRIGGERS').from(av).to(fv).property('created_at', ts).iterate()",
+                    {"aid": al["vid"], "fid": fvid, "ts": now},
+                )
+                created += 1
+            except HTTPException:
+                pass
+
+    return {
+        "status":         "ok",
+        "alerts_scanned": len(alerts),
+        "faults_indexed": len(faults),
+        "triggers_created": created,
+        "triggers_skip_exists": skipped,
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1013,12 +1210,13 @@ def ops_stats() -> Dict[str, Any]:
         except Exception:
             return 0
 
-    fault_count    = _safe_count("Fault")
-    solution_count = _safe_count("Solution")
-    sop_count      = _safe_count("SOP")
-    asset_count    = _safe_count("Asset")
-    incident_count = _safe_count("Incident")
-    alert_count    = _safe_count("Alert")
+    fault_count     = _safe_count("Fault")
+    solution_count  = _safe_count("Solution")
+    sop_count       = _safe_count("SOP")
+    asset_count     = _safe_count("Asset")
+    incident_count  = _safe_count("Incident")
+    alert_count     = _safe_count("Alert")
+    category_count  = _safe_count("Category")
 
     # 知识覆盖率：有 Solution 的 Fault / 总 Fault
     # HugeGraph 兼容写法：先查 HAS_SOLUTION 边的起点 id 集合，再计数
@@ -1032,25 +1230,39 @@ def ops_stats() -> Dict[str, Any]:
         covered = 0
     coverage_rate = round(covered / fault_count * 100, 1) if fault_count > 0 else 0.0
 
-    # 按 data_source 分布（HugeGraph 兼容：逐个统计已知 source）
+    # Fault 按 data_source 分布：按图中实际取值计数（兼容 gaia、open_gaia 等），并单独统计未设属性
     source_dist: Dict[str, int] = {}
     try:
-        known_sources = ["manual", "extracted_approved", "open_gaia", "logHub",
-                         "stackoverflow", "internal_ticket"]
-        for src in known_sources:
+        distinct_src = _extract_data(
+            execute_gremlin("g.V().hasLabel('Fault').values('data_source').dedup()")
+        )
+        for src in distinct_src or []:
+            if src is None:
+                continue
             r = execute_gremlin(
-                "g.V().hasLabel('Fault').has('data_source', src).count()",
-                {"src": src}
+                "g.V().hasLabel('Fault').has('data_source', ds).count()",
+                {"ds": src},
             )
-            cnt = (_extract_data(r) or [0])[0]
-            if cnt > 0:
-                source_dist[src] = cnt
-        # 未标记 data_source 的
-        tagged = sum(source_dist.values())
-        if fault_count > tagged:
-            source_dist["unknown"] = fault_count - tagged
+            cnt = int((_extract_data(r) or [0])[0])
+            if cnt <= 0:
+                continue
+            key = "unset" if str(src).strip() == "" else str(src)
+            source_dist[key] = source_dist.get(key, 0) + cnt
+        r_nop = execute_gremlin(
+            "g.V().hasLabel('Fault').not(__.has('data_source')).count()"
+        )
+        no_prop = int((_extract_data(r_nop) or [0])[0])
+        if no_prop > 0:
+            source_dist["unset"] = source_dist.get("unset", 0) + no_prop
     except Exception:
         source_dist = {}
+
+    def _edge_cnt(lbl: str) -> int:
+        try:
+            r = execute_gremlin(f"g.E().hasLabel('{lbl}').count()")
+            return int((_extract_data(r) or [0])[0])
+        except Exception:
+            return 0
 
     # 方案复用率
     resolved = 0
@@ -1070,17 +1282,24 @@ def ops_stats() -> Dict[str, Any]:
 
     return {
         "node_counts": {
-            "Fault":    fault_count,
-            "Solution": solution_count,
-            "SOP":      sop_count,
-            "Asset":    asset_count,
-            "Incident": incident_count,
-            "Alert":    alert_count,
+            "Fault":     fault_count,
+            "Solution":  solution_count,
+            "SOP":       sop_count,
+            "Asset":     asset_count,
+            "Incident":  incident_count,
+            "Alert":     alert_count,
+            "Category":  category_count,
         },
         "coverage_rate":   coverage_rate,
         "reuse_rate":      reuse_rate,
         "extract_rate":    extract_rate,
         "source_distribution": source_dist,
+        "edge_counts": {
+            "TRIGGERS":     _edge_cnt("TRIGGERS"),
+            "CLASSIFIED_AS": _edge_cnt("CLASSIFIED_AS"),
+            "HAS_SOLUTION": _edge_cnt("HAS_SOLUTION"),
+            "HAS_ALERT":    _edge_cnt("HAS_ALERT"),
+        },
         "extract_queue": {
             "total":    total_q,
             "pending":  sum(1 for v in _extract_queue.values() if v["status"] == "pending"),

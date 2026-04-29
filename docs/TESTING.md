@@ -32,6 +32,13 @@ Invoke-RestMethod http://localhost:8002/health
 
 # 若修改了统计或 Schema，建议再测：
 Invoke-RestMethod http://localhost:8002/ops/stats
+
+# M3：Category / CLASSIFIED_AS / TRIGGERS（可用手动三步或脚本一键）
+Invoke-RestMethod -Method POST -Uri http://localhost:8002/admin/schema/init
+Invoke-RestMethod -Method POST -Uri http://localhost:8002/admin/categories/init -ContentType 'application/json' -Body '{}'
+Invoke-RestMethod -Method POST -Uri 'http://localhost:8002/admin/triggers/sync?top_k_per_alert=2'
+
+# 等价：python scripts/bootstrap_m3.py
 ```
 
 若变更涉及子图或上下文：

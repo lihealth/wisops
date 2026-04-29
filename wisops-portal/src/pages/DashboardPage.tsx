@@ -20,10 +20,13 @@ interface Growth {
 const SOURCE_LABEL: Record<string, string> = {
   manual:              '手工录入',
   extracted_approved:  '抽取审核',
-  open_gaia:           'GAIA 数据集',
+  open_gaia:           'GAIA 数据集（open_gaia）',
+  gaia:                'GAIA 导入',
+  gen_template:        '模板生成',
   logHub:              'LogHub',
   stackoverflow:       'StackOverflow',
   internal_ticket:     '内部工单',
+  unset:               '未设置 data_source',
   unknown:             '未知',
 }
 

@@ -5,6 +5,7 @@ Fault 向量：OpenAI 兼容 /v1/embeddings + Qdrant collection `fault_vectors`�
 """
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -79,15 +80,24 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
     key = _embedding_auth_header()
     if not base or not key:
         raise RuntimeError("Embedding API URL 或 API Key 未配置（EMBEDDING_* 或 LLM_*）")
+    try:
+        key.encode("latin-1")
+    except UnicodeEncodeError as e:
+        raise RuntimeError(
+            "API Key 含有非 ASCII 字符，无法作为 HTTP Authorization 头发送（常见于复制进了全角符号或不可见字符）。"
+            "请从阿里云控制台重新复制密钥，仅保留英文字母、数字、下划线与常见符号，并去掉首尾空格。"
+        ) from e
 
     url = f"{base.rstrip('/')}/v1/embeddings"
+    # 显式 UTF-8 请求体，避免含中文 input 时底层 http.client 按 latin-1 编码报错
+    body = json.dumps({"model": EMBEDDING_MODEL, "input": texts}, ensure_ascii=False).encode("utf-8")
     resp = requests.post(
         url,
         headers={
             "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
+            "Content-Type": "application/json; charset=utf-8",
         },
-        json={"model": EMBEDDING_MODEL, "input": texts},
+        data=body,
         timeout=REQUEST_TIMEOUT,
     )
     if not resp.ok:

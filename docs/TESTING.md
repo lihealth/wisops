@@ -85,7 +85,30 @@ cd wisops-portal
 npm run build
 ```
 
-本地开发时手动点验：**首页 → AI 问答（至少一种模式）→ 图谱管理一次查询**。
+修改过门户代码时，经统一入口验证前需重建镜像：
+
+```powershell
+docker compose --profile graph build portal
+docker compose --profile graph up -d portal
+```
+
+#### 2.3.1 浏览器验收（AI 问答 + 图谱，推荐）
+
+**前置**：`docker compose --profile graph up -d` 已启动；graph-api 已配 `LLM_*`（如阿里云 **DashScope 千问**）且已执行过 `POST /admin/fault-vectors/sync`（`recommend` 返回 `method=vector` 时，前端「相似故障」为向量检索）。
+
+| 步骤 | 操作 | 期望 |
+|------|------|------|
+| 1 | 浏览器打开 **`http://localhost:8090/chat`** | 页面加载正常 |
+| 2 | 模式选 **「图谱融合」** 或 **「自动」** | 可不配置 Dify Key：仅图谱摘要 + 相似推荐 + 说明文案 |
+| 3 | 右上角 **🔑** 填入 **Dify 应用 API Key**（`app-…`） | 可与图谱并行：**相似故障推荐卡片** + **知识库流式回答** |
+| 4 | 输入自然语言问题，例如：**磁盘空间满了** | 出现 **相似故障推荐**（含相似度百分比）；若已配 Dify，下方为 **RAG 归纳步骤**（如 `df -h`、`/var/log` 等） |
+| 5 | 模式切到 **「纯 RAG」** | **仅**走 Dify 知识库，**不**请求图谱推荐（需 Key） |
+
+**首页 → 运营看板 `/dashboard`**：核对节点统计、`source_distribution`、`edge_counts`（修改 graph-api 统计后必选）。
+
+**图谱管理 `/graph`**：至少做一次故障名查询或可视化，确认反代 `8090/graph-api` 正常。
+
+本地开发时亦可 **`npm run dev`** 用 Vite 端口点验，但合入前仍建议按上表走 **`8090` + 重建 portal** 的路径。
 
 ### 2.4 经统一入口（Nginx）验证
 
@@ -118,6 +141,7 @@ Invoke-RestMethod http://localhost:8090/graph-api/health
 | 图谱全空、接口 502 | 是否使用 `docker compose --profile graph up -d`；`admin/schema/init` 与导入是否执行 |
 | 门户能开、图谱不可用 | `8090/graph-api/health` 与 `8002/health` 对照；Nginx 是否指向 `graph-api` |
 | 纯 RAG 无答案、图谱有数据 | 问答模式是否为「纯 RAG」；Dify 知识库是否含该主题切片 |
+| 问答无「相似故障推荐」、接口为 `method=keyword` | 是否已 `POST /admin/fault-vectors/sync`；embedding 与 Qdrant 是否正常（见 §2.1 Alpha #7） |
 
 ---
 

@@ -539,9 +539,7 @@ def _upsert_vertex(label: str, name: str, extra_props: Dict[str, Any]) -> str:
 
 
 @app.post("/graph/add")
-def add_relation(payload: AddRelationRequest) -> Dict[str, Any]:
-    now = int(time.time() * 1000)
-
+def add_relation(payload: AddRelationRequest, background_tasks: BackgroundTasks) -> Dict[str, Any]:
     # 1. 确保 Fault 顶点存在
     fid = _upsert_vertex("Fault", payload.fault_name, {
         "data_source": payload.data_source,
@@ -567,14 +565,21 @@ def add_relation(payload: AddRelationRequest) -> Dict[str, Any]:
         {"fid": fid, "sid": sid},
     )
     cnt = (_extract_data(check) or [0])[0]
-    if cnt > 0:
-        return {"status": "ok", "edge_status": "exists"}
+    edge_status = "exists" if cnt > 0 else "created"
+    if cnt == 0:
+        execute_gremlin(
+            "def fv = g.V(fid).next(); def sv = g.V(sid).next(); g.addE('HAS_SOLUTION').from(fv).to(sv).iterate()",
+            {"fid": fid, "sid": sid},
+        )
 
-    execute_gremlin(
-        "def fv = g.V(fid).next(); def sv = g.V(sid).next(); g.addE('HAS_SOLUTION').from(fv).to(sv).iterate()",
-        {"fid": fid, "sid": sid},
-    )
-    return {"status": "ok", "edge_status": "created"}
+    def _bg_sync_fault_vector() -> None:
+        try:
+            _vec.upsert_fault_vector_for_name(execute_gremlin, _extract_data, payload.fault_name)
+        except Exception:
+            pass
+
+    background_tasks.add_task(_bg_sync_fault_vector)
+    return {"status": "ok", "edge_status": edge_status}
 
 
 @app.get("/graph/faults")

@@ -63,6 +63,8 @@ Invoke-RestMethod -Method POST -Uri http://localhost:8002/graph/recommend `
 Invoke-RestMethod "http://localhost:8002/graph/context?fault_name=服务连接被拒绝（Connection Refused）"
 ```
 
+`POST /graph/add` 成功后会**后台尝试**将该 Fault 的向量 upsert 到 Qdrant（已配 embedding 且与现有 collection 维度一致时生效）；仍建议大批量变更后执行一次 `POST /admin/fault-vectors/sync`。
+
 ### 2.2 数据导入脚本
 
 - 先用 **小样本** 或 **`--dry-run`**（若脚本支持）验证映射与去重。  

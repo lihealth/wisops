@@ -11,6 +11,7 @@
 
 - graph-api：Qdrant **`fault_vectors`** 同步接口 `POST /admin/fault-vectors/sync`（OpenAI 兼容 `/v1/embeddings`）
 - `POST /graph/recommend` 优先向量检索，失败或无索引时降级关键词；响应增加 **`method`**：`vector` / `keyword` / `keyword_fallback`
+- `POST /graph/add`：写入成功后**后台**增量更新该 Fault 的 Qdrant 向量（配置齐全且维度与 collection 一致时）
 - Docker：`graph-api` 依赖 **qdrant**，注入 `QDRANT_URL` 与可选 `EMBEDDING_*`
 
 ## [v1.6.0] — 2026-04-28

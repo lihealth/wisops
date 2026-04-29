@@ -283,3 +283,69 @@ g.V().hasLabel('Fault').project('name','description','domain').
         "upserted":     upserted,
         "qdrant_url":   QDRANT_URL,
     }
+
+
+def upsert_fault_vector_for_name(
+    execute_gremlin: GremlinFn,
+    extract_data: ExtractFn,
+    fault_name: str,
+) -> bool:
+    """
+    将单个 Fault 写入/更新到 Qdrant（与全量 sync 同一套 point id 与 payload）。
+    未配置 embedding、图中无该 Fault、或已有 collection 的向量维度与当前模型不一致时返回 False（不删库）。
+    """
+    if not embedding_configured():
+        return False
+    fn = (fault_name or "").strip()
+    if not fn:
+        return False
+    script = """
+g.V().hasLabel('Fault').has('name', fault_name).limit(1).
+  project('name','description','domain').
+  by(values('name')).
+  by(coalesce(values('description'), constant(''))).
+  by(coalesce(values('domain'), constant('')))
+"""
+    rows = extract_data(execute_gremlin(script, {"fault_name": fn}))
+    if not rows or not isinstance(rows[0], dict):
+        return False
+    row = rows[0]
+    name = str(row.get("name") or "").strip()
+    if not name:
+        return False
+    f = {
+        "name":          name,
+        "description":   str(row.get("description") or ""),
+        "domain":        str(row.get("domain") or ""),
+    }
+    text = fault_embedding_text(f["name"], f["description"], f["domain"])
+    vec = embed_texts([text])[0]
+    dim = len(vec)
+
+    client = _qdrant_client()
+    names = {c.name for c in client.get_collections().collections}
+    if QDRANT_COLLECTION not in names:
+        ensure_fault_collection(dim)
+    else:
+        existing = _collection_vector_dim(client, QDRANT_COLLECTION)
+        if existing is None or int(existing) != int(dim):
+            return False
+
+    from qdrant_client.models import PointStruct
+
+    pid = str(uuid.uuid5(uuid.NAMESPACE_URL, "wisops:fault:" + f["name"]))
+    client.upsert(
+        collection_name=QDRANT_COLLECTION,
+        points=[
+            PointStruct(
+                id=pid,
+                vector=vec,
+                payload={
+                    "fault_name": f["name"],
+                    "domain":     f["domain"],
+                    "embed_text": text[:500],
+                },
+            )
+        ],
+    )
+    return True

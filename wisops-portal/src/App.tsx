@@ -38,7 +38,7 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <span className="version">V2.0</span>
+          <span className="version">V1.7</span>
         </div>
       </aside>
 

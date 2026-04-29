@@ -7,12 +7,28 @@
 
 ## [Unreleased]
 
+## [v1.7.0] — 2026-04-29
+
+> **里程碑**：平台版本 **V1.7**（门户与图谱体验、数据全量一致性）
+
 ### 新增
 
+- graph-api：**Gremlin `range` 分页**（`_gremlin_collect_paged`），避免 HugeGraph 单次迭代批量上限导致仅返回约 64 条；`/graph/faults`、`/graph/recommend` 关键词候选、**`POST /admin/fault-vectors/sync` 全量**、分类初始化、告警–故障同步等路径均按页拉全量
+- graph-api：`GET /graph/faults/detail`（分页、按名称子串筛选、返回 `solution_total` / `has_solution_edges`）
 - graph-api：Qdrant **`fault_vectors`** 同步接口 `POST /admin/fault-vectors/sync`（OpenAI 兼容 `/v1/embeddings`）
 - `POST /graph/recommend` 优先向量检索，失败或无索引时降级关键词；响应增加 **`method`**：`vector` / `keyword` / `keyword_fallback`
 - `POST /graph/add`：写入成功后**后台**增量更新该 Fault 的 Qdrant 向量（配置齐全且维度与 collection 一致时）
 - Docker：`graph-api` 依赖 **qdrant**，注入 `QDRANT_URL` 与可选 `EMBEDDING_*`
+- portal：图谱管理 **「故障列表」** 表格（分页、每页条数、Fault 去重与统计说明）
+- portal：图谱 **可视化**（边/标签外移、箭头、图例、悬停高亮、入场动效、**节点径向间距**约束）
+
+### 修复
+
+- 故障列表 / 向量同步等仅见「前几十条」、与图中实际 Fault 数不一致的问题（Gremlin 未分页）
+
+### 变更
+
+- 统一产品展示与 OpenAPI 版本号为 **V1.7** / **`1.7.0`**（`wisops-portal` npm、侧栏、首页徽章、`graph-api` FastAPI `version`）；图谱领域模型仍为 Schema V2.0
 
 ## [v1.6.0] — 2026-04-28
 

@@ -1,4 +1,4 @@
-"""WisOps Graph API — V2.0"""
+"""WisOps Graph API — 平台 V1.7（图谱 Schema V2.0）"""
 import json
 import os
 import re
@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(
     title="WisOps Graph API",
-    version="2.0.0",
+    version="1.7.0",
     root_path="/graph-api",
     root_path_in_servers=False,
 )

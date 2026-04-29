@@ -39,7 +39,7 @@ export default function HomePage() {
   return (
     <div className="home">
       <div className="home-hero">
-        <div className="hero-badge">WisOps V2.0</div>
+        <div className="hero-badge">WisOps V1.7</div>
         <h1 className="hero-title">智能运维知识融合平台</h1>
         <p className="hero-sub">
           将 AI 知识库检索、故障图谱推理与知识自动沉淀融合，<br />

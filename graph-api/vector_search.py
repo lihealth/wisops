@@ -66,6 +66,17 @@ def _effective_embedding_model() -> str:
     return m if m else "text-embedding-3-small"
 
 
+def _embedding_batch_size() -> int:
+    """DashScope 兼容 embedding 单次 input 条数上限通常为 10；可用 EMBEDDING_BATCH_SIZE 覆盖。"""
+    raw = os.getenv("EMBEDDING_BATCH_SIZE", "").strip()
+    if raw.isdigit():
+        return max(1, min(int(raw), 64))
+    origin = _embedding_base_url().lower()
+    if ("dashscope" in origin) or ("aliyuncs.com" in origin and "compatible-mode" in origin):
+        return 10
+    return 32
+
+
 def _embedding_auth_header() -> str:
     key = EMBEDDING_API_KEY or os.getenv("LLM_API_KEY", "")
     return key
@@ -275,7 +286,7 @@ g.V().hasLabel('Fault').project('name','description','domain').
 
     from qdrant_client.models import PointStruct
 
-    batch_size = 32
+    batch_size = _embedding_batch_size()
     upserted = 0
     for i in range(0, len(texts), batch_size):
         chunk_texts = texts[i : i + batch_size]

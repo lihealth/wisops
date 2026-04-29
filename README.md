@@ -227,3 +227,7 @@ docker compose --profile graph up -d --build graph-api
 - 补充“部署成功检查清单”
 - 完善用户手册与演示脚本
 
+## 10. 功能开发与自测流程
+
+每完成一项功能请先按 **[docs/TESTING.md](docs/TESTING.md)** 做最小验收再合入下一项；发起 Pull Request 时会自动出现 **[自测记录](.github/pull_request_template.md)** 清单，请如实勾选。
+

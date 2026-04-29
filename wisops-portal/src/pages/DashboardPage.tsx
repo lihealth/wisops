@@ -9,12 +9,23 @@ interface Stats {
   reuse_rate: number
   extract_rate: number
   source_distribution: Record<string, number>
+  /** 各边标签总量（graph-api /ops/stats） */
+  edge_counts?: Record<string, number>
   extract_queue: { total: number; pending: number; approved: number; rejected: number }
 }
 
 interface Growth {
   window: string
   new_nodes: Record<string, number>
+}
+
+const EDGE_CARD_ORDER = ['TRIGGERS', 'CLASSIFIED_AS', 'HAS_SOLUTION', 'HAS_ALERT'] as const
+
+const EDGE_LABEL: Record<string, string> = {
+  TRIGGERS:      '告警 → 故障',
+  CLASSIFIED_AS: '故障 → 分类',
+  HAS_SOLUTION:  '故障 → 方案',
+  HAS_ALERT:     '资产 → 告警',
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -99,6 +110,23 @@ export default function DashboardPage() {
           color={stats.extract_rate >= 50 ? 'green' : 'yellow'}
           icon="🤖"
         />
+      </div>
+
+      {/* 图谱关系（边）— 卡片 */}
+      <div className="db-card db-card-edge-wrap">
+        <div className="card-title">图谱关系（边总量）</div>
+        <div className="edge-card-grid">
+          {EDGE_CARD_ORDER.map((key) => {
+            const n = stats.edge_counts?.[key] ?? 0
+            return (
+              <div key={key} className={`edge-card edge-card--${key.toLowerCase().replace(/_/g, '-')}`}>
+                <div className="edge-card-value">{n.toLocaleString()}</div>
+                <div className="edge-card-label">{EDGE_LABEL[key] ?? key}</div>
+                <div className="edge-card-code">{key}</div>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       <div className="db-row">

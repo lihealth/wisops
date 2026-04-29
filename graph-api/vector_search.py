@@ -213,12 +213,14 @@ def search_similar_faults(
         return []
 
     try:
-        hits = client.search(
+        # qdrant-client>=1.11：使用 query_points；旧版 search 已移除
+        res = client.query_points(
             collection_name=QDRANT_COLLECTION,
-            query_vector=qv,
+            query=qv,
             limit=top_k,
             with_payload=True,
         )
+        hits = getattr(res, "points", None) or []
     except Exception:
         return []
 

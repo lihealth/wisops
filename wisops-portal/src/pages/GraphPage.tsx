@@ -3,7 +3,7 @@ import './GraphPage.css'
 
 const GRAPH_BASE = '/graph-api'
 
-const FAULT_TABLE_PAGE_SIZE = 50
+const FAULT_PAGE_SIZE_OPTIONS = [50, 100, 200] as const
 
 interface FaultRow {
   name: string
@@ -59,6 +59,7 @@ function FaultTablePanel() {
   const [total, setTotal] = useState(0)
   const [graphTotal, setGraphTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(100)
   const [qInput, setQInput] = useState('')
   const [q, setQ] = useState('')
   const [loading, setLoading] = useState(false)
@@ -74,12 +75,16 @@ function FaultTablePanel() {
   }, [q])
 
   useEffect(() => {
+    setPage(1)
+  }, [pageSize])
+
+  useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError('')
     const params = new URLSearchParams({
       page: String(page),
-      page_size: String(FAULT_TABLE_PAGE_SIZE),
+      page_size: String(pageSize),
     })
     if (q) params.set('q', q)
     fetch(`${GRAPH_BASE}/graph/faults/detail?${params}`)
@@ -102,16 +107,18 @@ function FaultTablePanel() {
     return () => {
       cancelled = true
     }
-  }, [page, q])
+  }, [page, q, pageSize])
 
-  const totalPages = Math.max(1, Math.ceil(total / FAULT_TABLE_PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const rangeEnd = total === 0 ? 0 : Math.min(page * pageSize, total)
 
   return (
     <div className="panel fault-table-panel">
       <p className="fault-table-hint">
-        展示 HugeGraph 中已录入的故障顶点（共 <strong>{graphTotal}</strong> 条）
-        {q ? `，筛选命中 ${total} 条` : ''}
-        。
+        故障列表<strong>分页</strong>加载：图谱中共有 <strong>{graphTotal}</strong> 个故障顶点。
+        {q ? ` 当前筛选命中 ${total} 条。` : ' '}
+        表格<strong>每页最多显示所选条数</strong>，数据较多时请用「上一页 / 下一页」浏览。
       </p>
       <div className="fault-table-toolbar">
         <input
@@ -120,10 +127,53 @@ function FaultTablePanel() {
           value={qInput}
           onChange={(e) => setQInput(e.target.value)}
         />
+        <label className="fault-page-size-label">
+          每页
+          <select
+            className="fault-page-size"
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            aria-label="每页条数"
+          >
+            {FAULT_PAGE_SIZE_OPTIONS.map((n) => (
+              <option key={n} value={n}>{n} 条</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {error && <div className="msg-error">{error}</div>}
       {loading && <div className="empty">加载中…</div>}
+
+      {!loading && !error && total > 0 && (
+        <div className="fault-table-range">
+          显示第 {rangeStart}–{rangeEnd} 条，共 {total} 条（第 {page} / {totalPages} 页）
+        </div>
+      )}
+
+      {!loading && total > 0 && (
+        <div className="pagination pagination-top">
+          <button
+            type="button"
+            className="btn-page"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            上一页
+          </button>
+          <span className="page-info">
+            第 {page} / {totalPages} 页
+          </span>
+          <button
+            type="button"
+            className="btn-page"
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          >
+            下一页
+          </button>
+        </div>
+      )}
 
       {!loading && !error && (
         <div className="fault-table-wrap">
@@ -165,7 +215,7 @@ function FaultTablePanel() {
       )}
 
       {!loading && total > 0 && (
-        <div className="pagination">
+        <div className="pagination pagination-bottom">
           <button
             type="button"
             className="btn-page"
@@ -175,7 +225,7 @@ function FaultTablePanel() {
             上一页
           </button>
           <span className="page-info">
-            第 {page} / {totalPages} 页（每页 {FAULT_TABLE_PAGE_SIZE} 条）
+            第 {page} / {totalPages} 页 · 每页最多 {pageSize} 条
           </span>
           <button
             type="button"

@@ -7,6 +7,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 import requests
+import vector_search as _vec
 from fastapi import Body, FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 
@@ -483,6 +484,22 @@ def admin_triggers_sync(top_k_per_alert: int = 2) -> Dict[str, Any]:
     }
 
 
+@app.post("/admin/fault-vectors/sync")
+def admin_fault_vectors_sync(full_reset: bool = False) -> Dict[str, Any]:
+    """
+    将 HugeGraph 中 Fault（name + description + domain）向量化并 upsert 到 Qdrant collection（默认 fault_vectors）。
+    需配置 EMBEDDING_API_URL + EMBEDDING_API_KEY，或复用 LLM_API_URL + LLM_API_KEY（OpenAI 兼容 /v1/embeddings）。
+    full_reset=true 时先删除 collection 再重建，用于换 embedding 模型或清理脏点。
+    """
+    ensure_schema_v2()
+    try:
+        return _vec.sync_fault_vectors_from_graph(execute_gremlin, _extract_data, full_reset=full_reset)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"fault-vectors sync failed: {e}") from e
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # V1.x 接口（保留，兼容）
 # ──────────────────────────────────────────────────────────────────────────────
@@ -683,64 +700,79 @@ g.V().hasLabel('Fault').has('name', fault_name).
     }
 
 
-@app.post("/graph/recommend")
-def recommend_faults(payload: RecommendRequest) -> Dict[str, Any]:
-    """
-    相似故障推荐：基于关键词模糊匹配（V2.0 基础版）。
-    V2.1 升级：接入 Qdrant fault_vectors embedding 检索。
-    """
-    query = payload.query.lower()
-
-    # 获取所有故障名
-    all_faults_result = execute_gremlin("g.V().hasLabel('Fault').values('name').order()")
-    all_faults: List[str] = _extract_data(all_faults_result)
-
-    # 简单关键词评分（待替换为 embedding 相似度）
+def _keyword_fault_scores(query_lower: str, all_faults: List[str]) -> List[Dict[str, Any]]:
     scored: List[Dict[str, Any]] = []
     for fname in all_faults:
         score = 0.0
         fname_lower = fname.lower()
-        # 完整包含：高分
-        if query in fname_lower or fname_lower in query:
+        if query_lower in fname_lower or fname_lower in query_lower:
             score = 0.9
         else:
-            # 词粒度交集
-            q_words = set(query.replace("，", " ").replace(",", " ").split())
+            q_words = set(query_lower.replace("，", " ").replace(",", " ").split())
             f_words = set(fname_lower.replace("，", " ").replace(",", " ").split())
             intersection = q_words & f_words
             if intersection:
                 score = len(intersection) / max(len(q_words), len(f_words))
         if score > 0:
             scored.append({"fault_name": fname, "similarity": round(score, 3)})
-
     scored.sort(key=lambda x: x["similarity"], reverse=True)
-    top = scored[: payload.top_k]
+    return scored
 
-    # 为每个推荐结果查询方案
-    recommendations = []
+
+def _recommendations_payload(top: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    recommendations: List[Dict[str, Any]] = []
     for item in top:
         sol_result = execute_gremlin(
             "g.V().hasLabel('Fault').has('name', fault_name).out('HAS_SOLUTION')"
             ".project('name','description').by(values('name')).by(coalesce(values('description'), constant('')))",
-            {"fault_name": item["fault_name"]}
+            {"fault_name": item["fault_name"]},
         )
         solutions = _extract_data(sol_result)
 
         sop_result = execute_gremlin(
             "g.V().hasLabel('Fault').has('name', fault_name).out('HAS_SOP').values('title')",
-            {"fault_name": item["fault_name"]}
+            {"fault_name": item["fault_name"]},
         )
         sop_titles = _extract_data(sop_result)
 
         recommendations.append({
-            "fault_name":  item["fault_name"],
-            "similarity":  item["similarity"],
-            "solutions":   solutions,
-            "sop_titles":  sop_titles,
+            "fault_name": item["fault_name"],
+            "similarity": item["similarity"],
+            "solutions":  solutions,
+            "sop_titles": sop_titles,
         })
+    return recommendations
+
+
+@app.post("/graph/recommend")
+def recommend_faults(payload: RecommendRequest) -> Dict[str, Any]:
+    """
+    相似故障推荐：优先 Qdrant 向量检索（需先 POST /admin/fault-vectors/sync）；
+    无索引或未配置 embedding 时降级为关键词匹配。
+    """
+    query_lower = payload.query.lower()
+    all_faults_result = execute_gremlin("g.V().hasLabel('Fault').values('name').order()")
+    all_faults: List[str] = _extract_data(all_faults_result)
+
+    method = "keyword"
+    top: List[Dict[str, Any]] = []
+
+    if _vec.embedding_configured() and _vec.qdrant_collection_point_count() > 0:
+        vec_hits = _vec.search_similar_faults(payload.query, payload.top_k)
+        if vec_hits:
+            method = "vector"
+            top = [{"fault_name": fn, "similarity": round(sc, 4)} for fn, sc in vec_hits]
+
+    if not top:
+        method = "keyword" if method == "keyword" else "keyword_fallback"
+        kw = _keyword_fault_scores(query_lower, all_faults)
+        top = kw[: payload.top_k]
+
+    recommendations = _recommendations_payload(top)
 
     return {
         "query":           payload.query,
+        "method":          method,
         "recommendations": recommendations,
         "total":           len(recommendations),
     }

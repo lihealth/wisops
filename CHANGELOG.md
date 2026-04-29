@@ -5,6 +5,14 @@
 
 ---
 
+## [Unreleased]
+
+### 新增
+
+- graph-api：Qdrant **`fault_vectors`** 同步接口 `POST /admin/fault-vectors/sync`（OpenAI 兼容 `/v1/embeddings`）
+- `POST /graph/recommend` 优先向量检索，失败或无索引时降级关键词；响应增加 **`method`**：`vector` / `keyword` / `keyword_fallback`
+- Docker：`graph-api` 依赖 **qdrant**，注入 `QDRANT_URL` 与可选 `EMBEDDING_*`
+
 ## [v1.6.0] — 2026-04-28
 
 > **里程碑**：V2.0 核心模块全量上线 + 真实 GAIA 数据集接入
@@ -125,11 +133,11 @@
 以下为 PRD V2.0 差距项，优先级见 `PRD_V2.md §11`：
 
 ### 第一轮（解锁 alpha 验收）
-- [ ] 建 Qdrant `fault_vectors` Collection，写入故障 embedding
+- [x] 建 Qdrant `fault_vectors` Collection，写入故障 embedding（`POST /admin/fault-vectors/sync`）
 - [ ] Dify 工作流接入 `/graph/context`（Graph-RAG 链路打通）
 - [ ] 导入 LogHub 数据（补充 Fault 至 ≥ 1000 条）
-- [ ] 初始化 ITIL Category 分类树
-- [ ] 基于模式匹配批量生成 Alert → Fault `TRIGGERS` 边
+- [x] 初始化 ITIL Category 分类树（`POST /admin/categories/init`）
+- [x] 基于模式匹配批量生成 Alert → Fault `TRIGGERS` 边（`POST /admin/triggers/sync`）
 
 ### 第二轮（解锁 beta 验收）
 - [ ] extract-worker 接入 LLM 实现真实抽取

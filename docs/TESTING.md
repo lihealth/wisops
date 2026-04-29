@@ -41,6 +41,22 @@ Invoke-RestMethod -Method POST -Uri 'http://localhost:8002/admin/triggers/sync?t
 # 等价：python scripts/bootstrap_m3.py
 ```
 
+**Alpha #7：Fault 向量（Qdrant）与相似推荐**
+
+需在 `.env` 或 compose 中为 graph-api 配置 **OpenAI 兼容** 的 embedding 端点（`EMBEDDING_*` 或复用 `LLM_*`），且 compose `--profile graph` 已启动 **qdrant**。
+
+```powershell
+# 全量同步 HugeGraph Fault → Qdrant collection（默认 fault_vectors）
+Invoke-RestMethod -Method POST -Uri 'http://localhost:8002/admin/fault-vectors/sync'
+
+# 换模型或清空重建
+Invoke-RestMethod -Method POST -Uri 'http://localhost:8002/admin/fault-vectors/sync?full_reset=true'
+
+# 推荐接口应返回 method=vector（已成功建索引且命中时）
+Invoke-RestMethod -Method POST -Uri http://localhost:8002/graph/recommend `
+  -ContentType 'application/json' -Body '{"query":"磁盘空间不足","top_k":3}' | ConvertTo-Json
+```
+
 若变更涉及子图或上下文：
 
 ```powershell

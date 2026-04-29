@@ -93,39 +93,102 @@
 
 /* Visualize */
 .visual-panel {
-  max-width: 760px;
+  max-width: 900px;
+}
+.visual-legend-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0 0 0.5rem;
 }
 .graph-canvas-wrap {
   margin-top: 0.8rem;
-  background: var(--bg2);
+  background: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(99, 102, 241, 0.08), transparent 55%),
+    var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.75rem;
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem 0.65rem;
 }
 .graph-canvas {
   width: 100%;
-  height: 440px;
+  height: min(520px, 72vh);
+  max-height: 560px;
   display: block;
 }
+@keyframes graphReveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.visual-graph-root {
+  animation: graphReveal 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.visual-spoke {
+  cursor: default;
+  transition: filter 0.2s ease;
+}
+.visual-spoke--hot .solution-node {
+  stroke: #5eead4;
+  stroke-width: 3;
+  filter: url(#nodeGlow) brightness(1.08);
+}
+.visual-spoke--hot .edge-line {
+  stroke: #94a3b8;
+  stroke-width: 3;
+}
+.visual-spoke--hot .edge-label-bg {
+  fill: rgba(30, 41, 59, 0.95);
+  stroke: #64748b;
+}
+.visual-fault-hub {
+  cursor: default;
+}
+.visual-fault-hub--hot .fault-node {
+  stroke: #a5b4fc;
+  stroke-width: 3;
+  filter: url(#nodeGlow) brightness(1.06);
+}
+.edge-hit {
+  stroke: transparent;
+  stroke-width: 20;
+  stroke-linecap: round;
+}
 .edge-line {
-  stroke: #4b5563;
-  stroke-width: 2;
+  stroke: #64748b;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.edge-arrow-head {
+  fill: #94a3b8;
+}
+.edge-label-bg {
+  fill: rgba(15, 23, 42, 0.88);
+  stroke: rgba(71, 85, 105, 0.9);
+  stroke-width: 1;
 }
 .edge-label {
-  fill: var(--muted);
-  font-size: 10px;
+  fill: #e2e8f0;
+  font-size: 12px;
+  font-weight: 600;
   text-anchor: middle;
   dominant-baseline: middle;
 }
 .fault-node {
-  fill: #6366f1;
-  stroke: #8b5cf6;
+  fill: url(#faultGrad);
+  stroke: #818cf8;
   stroke-width: 2;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
 }
 .solution-node {
-  fill: #0ea5a4;
-  stroke: #14b8a6;
+  fill: url(#solGrad);
+  stroke: #2dd4bf;
   stroke-width: 2;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
 }
 .node-label {
   fill: #fff;
@@ -133,10 +196,41 @@
   text-anchor: middle;
   dominant-baseline: middle;
   pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.node-label--sm {
+  font-size: 9px;
 }
 .node-label-main {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
+  max-width: 100px;
+}
+.node-label-main--sm {
+  font-size: 11px;
+}
+.visual-legend-box {
+  fill: rgba(15, 23, 42, 0.55);
+  stroke: rgba(71, 85, 105, 0.5);
+}
+.visual-legend .legend-dot {
+  filter: none;
+}
+.visual-legend .fault-node.legend-dot {
+  fill: #6366f1;
+  stroke: #818cf8;
+}
+.visual-legend .solution-node.legend-dot {
+  fill: #14b8a6;
+  stroke: #2dd4bf;
+}
+.visual-legend-text {
+  fill: #cbd5e1;
+  font-size: 11px;
+  dominant-baseline: middle;
+}
+.visual-legend .legend-line {
+  marker-end: none;
 }
 
 /* 故障列表表格 */

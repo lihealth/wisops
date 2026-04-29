@@ -247,6 +247,38 @@ function FaultTablePanel() {
   )
 }
 
+function formatEdgeRelationLabel(raw: string): string {
+  const t = (raw || '').trim()
+  if (t === 'HAS_SOLUTION' || t === '') return '关联方案'
+  return t
+}
+
+/** 从圆心连线缩短到圆周，便于画边与标签 */
+function shortenChord(
+  cx: number,
+  cy: number,
+  tx: number,
+  ty: number,
+  fromR: number,
+  toR: number,
+) {
+  const dx = tx - cx
+  const dy = ty - cy
+  const len = Math.hypot(dx, dy) || 1
+  const ux = dx / len
+  const uy = dy / len
+  return {
+    x1: cx + ux * fromR,
+    y1: cy + uy * fromR,
+    x2: tx - ux * toR,
+    y2: ty - uy * toR,
+    ux,
+    uy,
+    px: -uy,
+    py: ux,
+  }
+}
+
 function VisualPanel() {
   const [query, setQuery] = useState('')
   const [faults, setFaults] = useState<string[]>([])
@@ -254,6 +286,8 @@ function VisualPanel() {
   const [edges, setEdges] = useState<GraphEdge[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [hoverSpoke, setHoverSpoke] = useState<string | null>(null)
+  const [hoverFault, setHoverFault] = useState(false)
 
   useEffect(() => {
     fetch(`${GRAPH_BASE}/graph/faults`)
@@ -283,9 +317,14 @@ function VisualPanel() {
 
   const fault = nodes.find((n) => n.type === 'Fault')
   const solutions = nodes.filter((n) => n.type === 'Solution')
-  const centerX = 360
-  const centerY = 220
-  const radius = 150
+  const vbW = 820
+  const vbH = 480
+  const centerX = vbW / 2
+  const centerY = vbH / 2 - 10
+  const radius = Math.min(168, 110 + solutions.length * 12)
+  const faultR = 56
+  const solR = 46
+  const labelOffset = 36
 
   return (
     <div className="panel visual-panel">
@@ -311,28 +350,127 @@ function VisualPanel() {
 
       {fault && (
         <div className="graph-canvas-wrap">
-          <svg className="graph-canvas" viewBox="0 0 720 440">
-            {solutions.map((s, i) => {
-              const angle = (Math.PI * 2 * i) / Math.max(solutions.length, 1)
-              const x = centerX + radius * Math.cos(angle)
-              const y = centerY + radius * Math.sin(angle)
-              const edge = edges.find((e) => String(e.source) === String(fault.id) && String(e.target) === String(s.id))
-              return (
-                <g key={s.id}>
-                  <line x1={centerX} y1={centerY} x2={x} y2={y} className="edge-line" />
-                  {edge && (
-                    <text x={(centerX + x) / 2} y={(centerY + y) / 2} className="edge-label">
-                      {edge.label}
-                    </text>
-                  )}
-                  <circle cx={x} cy={y} r="42" className="solution-node" />
-                  <text x={x} y={y} className="node-label">{s.label}</text>
-                </g>
-              )
-            })}
+          <p className="visual-legend-hint">悬停节点或连线可高亮；边标签已外移避免与圆重叠。</p>
+          <svg
+            className="graph-canvas"
+            viewBox={`0 0 ${vbW} ${vbH}`}
+            role="img"
+            aria-label="故障关联子图"
+          >
+            <defs>
+              <linearGradient id="faultGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#6366f1" />
+                <stop offset="100%" stopColor="#4f46e5" />
+              </linearGradient>
+              <linearGradient id="solGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#14b8a6" />
+                <stop offset="100%" stopColor="#0d9488" />
+              </linearGradient>
+              <filter id="nodeGlow" x="-40%" y="-40%" width="180%" height="180%">
+                <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#000" floodOpacity="0.35" />
+              </filter>
+              <marker
+                id="arrowHasSol"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow-head" />
+              </marker>
+            </defs>
 
-            <circle cx={centerX} cy={centerY} r="52" className="fault-node" />
-            <text x={centerX} y={centerY} className="node-label node-label-main">{fault.label}</text>
+            <g key={fault.id} className="visual-graph-root">
+              {solutions.map((s, i) => {
+                const angle = (Math.PI * 2 * i) / Math.max(solutions.length, 1)
+                const x = centerX + radius * Math.cos(angle)
+                const y = centerY + radius * Math.sin(angle)
+                const chord = shortenChord(centerX, centerY, x, y, faultR, solR)
+                const mx = (chord.x1 + chord.x2) / 2
+                const my = (chord.y1 + chord.y2) / 2
+                const lx = mx + chord.px * labelOffset
+                const ly = my + chord.py * labelOffset
+                const edge = edges.find((e) => String(e.source) === String(fault.id) && String(e.target) === String(s.id))
+                const rel = formatEdgeRelationLabel(edge?.label ?? '')
+                const hot = hoverSpoke === s.id
+                const tw = Math.min(220, Math.max(56, rel.length * 12 + 16))
+
+                return (
+                  <g
+                    key={s.id}
+                    className={`visual-spoke ${hot ? 'visual-spoke--hot' : ''}`}
+                    onMouseEnter={() => setHoverSpoke(s.id)}
+                    onMouseLeave={() => setHoverSpoke(null)}
+                  >
+                    <title>{`${rel} → ${s.label}`}</title>
+                    <line
+                      x1={chord.x1}
+                      y1={chord.y1}
+                      x2={chord.x2}
+                      y2={chord.y2}
+                      className="edge-hit"
+                    />
+                    <line
+                      x1={chord.x1}
+                      y1={chord.y1}
+                      x2={chord.x2}
+                      y2={chord.y2}
+                      className="edge-line"
+                      markerEnd="url(#arrowHasSol)"
+                    />
+                    <g className="edge-label-group" pointerEvents="none">
+                      <rect
+                        x={lx - tw / 2}
+                        y={ly - 12}
+                        width={tw}
+                        height={24}
+                        rx={8}
+                        className="edge-label-bg"
+                      />
+                      <text x={lx} y={ly} className="edge-label">
+                        {rel}
+                      </text>
+                    </g>
+                    <circle cx={x} cy={y} r={solR} className="solution-node" filter="url(#nodeGlow)" />
+                    <text
+                      x={x}
+                      y={y}
+                      className={`node-label ${s.label.length > 16 ? 'node-label--sm' : ''}`}
+                    >
+                      {s.label}
+                    </text>
+                  </g>
+                )
+              })}
+
+              <g
+                className={`visual-fault-hub ${hoverFault ? 'visual-fault-hub--hot' : ''}`}
+                onMouseEnter={() => setHoverFault(true)}
+                onMouseLeave={() => setHoverFault(false)}
+              >
+                <title>{fault.label}</title>
+                <circle cx={centerX} cy={centerY} r={faultR} className="fault-node" filter="url(#nodeGlow)" />
+                <text
+                  x={centerX}
+                  y={centerY}
+                  className={`node-label node-label-main ${fault.label.length > 14 ? 'node-label-main--sm' : ''}`}
+                >
+                  {fault.label}
+                </text>
+              </g>
+            </g>
+
+            <g className="visual-legend" pointerEvents="none">
+              <rect x={16} y={vbH - 44} width={268} height={32} rx={8} className="visual-legend-box" />
+              <circle cx={36} cy={vbH - 28} r={8} className="fault-node legend-dot" />
+              <text x={50} y={vbH - 24} className="visual-legend-text">故障（Fault）</text>
+              <circle cx={138} cy={vbH - 28} r={8} className="solution-node legend-dot" />
+              <text x={152} y={vbH - 24} className="visual-legend-text">方案（Solution）</text>
+              <line x1={230} y1={vbH - 28} x2={252} y2={vbH - 28} className="edge-line legend-line" />
+              <text x={258} y={vbH - 24} className="visual-legend-text">关系</text>
+            </g>
           </svg>
         </div>
       )}

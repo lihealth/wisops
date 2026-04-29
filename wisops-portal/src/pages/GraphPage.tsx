@@ -58,6 +58,8 @@ function FaultTablePanel() {
   const [items, setItems] = useState<FaultRow[]>([])
   const [total, setTotal] = useState(0)
   const [graphTotal, setGraphTotal] = useState(0)
+  const [solutionTotal, setSolutionTotal] = useState(0)
+  const [hasSolutionEdges, setHasSolutionEdges] = useState(0)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(100)
   const [qInput, setQInput] = useState('')
@@ -97,6 +99,8 @@ function FaultTablePanel() {
         setItems(d.items ?? [])
         setTotal(typeof d.total === 'number' ? d.total : 0)
         setGraphTotal(typeof d.graph_total === 'number' ? d.graph_total : (d.total ?? 0))
+        setSolutionTotal(typeof d.solution_total === 'number' ? d.solution_total : 0)
+        setHasSolutionEdges(typeof d.has_solution_edges === 'number' ? d.has_solution_edges : 0)
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : '加载失败')
@@ -116,9 +120,11 @@ function FaultTablePanel() {
   return (
     <div className="panel fault-table-panel">
       <p className="fault-table-hint">
-        故障列表<strong>分页</strong>加载：图谱中共有 <strong>{graphTotal}</strong> 个故障顶点。
-        {q ? ` 当前筛选命中 ${total} 条。` : ' '}
-        表格<strong>每页最多显示所选条数</strong>，数据较多时请用「上一页 / 下一页」浏览。
+        本表每一行是图谱里的一个 <strong>Fault</strong> 顶点（<strong>故障名称唯一</strong>，多行导入若归为同一类故障会合并为一行）。
+        当前图中：<strong>{graphTotal}</strong> 个故障、<strong>{solutionTotal}</strong> 个解决方案、
+        <strong>{hasSolutionEdges}</strong> 条「故障—方案」关联。
+        {q ? ` 筛选后本表共 ${total} 行。` : ' '}
+        行数多于每页条数时可用「上一页 / 下一页」；若总页数为 1，说明<strong>图中故障类型就只有这么多</strong>（例如 GAIA 导入脚本按有限类模板 + 故障名去重归类，不等于原始日志行数或千条 JSONL 行数）。
       </p>
       <div className="fault-table-toolbar">
         <input

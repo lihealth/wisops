@@ -669,6 +669,21 @@ def _normalize_fault_detail_rows(rows: List[Any]) -> List[Dict[str, Any]]:
     return out
 
 
+def _safe_vertex_edge_counts() -> Dict[str, int]:
+    """辅助前端理解：Fault 按名称唯一，Solution 与 HAS_SOLUTION 可远多于 Fault 数。"""
+    try:
+        fr = execute_gremlin("g.V().hasLabel('Fault').count()")
+        sr = execute_gremlin("g.V().hasLabel('Solution').count()")
+        er = execute_gremlin("g.E().hasLabel('HAS_SOLUTION').count()")
+        return {
+            "fault_vertex_count":   int((_extract_data(fr) or [0])[0]),
+            "solution_vertex_count": int((_extract_data(sr) or [0])[0]),
+            "has_solution_edge_count": int((_extract_data(er) or [0])[0]),
+        }
+    except Exception:
+        return {"fault_vertex_count": 0, "solution_vertex_count": 0, "has_solution_edge_count": 0}
+
+
 @app.get("/graph/faults/detail")
 def list_faults_detail(
     page: int = Query(1, ge=1),
@@ -680,8 +695,10 @@ def list_faults_detail(
     q 非空时在内存中按名称子串过滤（与全量故障名列表比对，适合万级以内）。
     """
     page_size = min(page_size, 200)
-    total_r = execute_gremlin("g.V().hasLabel('Fault').count()")
-    graph_total = int((_extract_data(total_r) or [0])[0])
+    counts = _safe_vertex_edge_counts()
+    graph_total = counts["fault_vertex_count"]
+    solution_total = counts["solution_vertex_count"]
+    has_solution_edges = counts["has_solution_edge_count"]
 
     needle = (q or "").strip().lower()
     if needle:
@@ -695,6 +712,8 @@ def list_faults_detail(
                 "items":       [],
                 "total":       total,
                 "graph_total": graph_total,
+                "solution_total": solution_total,
+                "has_solution_edges": has_solution_edges,
                 "page":        page,
                 "page_size":   page_size,
                 "q":           q.strip(),
@@ -711,6 +730,8 @@ def list_faults_detail(
             "items":       items,
             "total":       total,
             "graph_total": graph_total,
+            "solution_total": solution_total,
+            "has_solution_edges": has_solution_edges,
             "page":        page,
             "page_size":   page_size,
             "q":           q.strip(),
@@ -727,6 +748,8 @@ def list_faults_detail(
         "items":       items,
         "total":       graph_total,
         "graph_total": graph_total,
+        "solution_total": solution_total,
+        "has_solution_edges": has_solution_edges,
         "page":        page,
         "page_size":   page_size,
         "q":           "",

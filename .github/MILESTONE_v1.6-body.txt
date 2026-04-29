@@ -1,0 +1,15 @@
+WisOps V1.6 — V2.0 核心能力与 GAIA 真实数据
+
+目标
+- 图谱从二部图演进为全链路 Schema（Fault / Solution / SOP / Asset / Alert / Incident / Category）
+- graph-api 提供 Graph-RAG 上下文、推荐、资产/告警/工单、抽取审核、运营统计等接口
+- wisops-portal 统一门户：问答、图谱、抽取、SOP、看板
+- 接入 GAIA-DataSet：约 10 Asset、1448 Alert、25 Fault–Solution 对（真实入库规模约 1508 节点）
+
+交付
+- 标签：v1.6.0
+- 变更日志：CHANGELOG.md
+- 门户依赖：lucide-react 等（见 wisops-portal/package.json）
+
+后续（PRD 差距）
+- Qdrant fault_vectors、Dify 调 /graph/context、三源数据扩充至 Fault≥1000、Category 树、TRIGGERS 边、权限与审计

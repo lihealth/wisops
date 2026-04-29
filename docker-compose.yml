@@ -142,6 +142,7 @@ services:
       - HUGEGRAPH_GRAPH=${HUGEGRAPH_GRAPH:-hugegraph}
       - LLM_API_URL=${LLM_API_URL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_CHAT_MODEL=${LLM_CHAT_MODEL:-gpt-4o-mini}
       - QDRANT_URL=http://qdrant:6333
       - QDRANT_COLLECTION=${QDRANT_COLLECTION:-fault_vectors}
       - EMBEDDING_API_URL=${EMBEDDING_API_URL:-}

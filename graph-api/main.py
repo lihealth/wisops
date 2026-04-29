@@ -22,6 +22,8 @@ HUGEGRAPH_URL   = os.getenv("HUGEGRAPH_URL",   "http://localhost:8081").rstrip("
 HUGEGRAPH_GRAPH = os.getenv("HUGEGRAPH_GRAPH", "hugegraph")
 LLM_API_URL     = os.getenv("LLM_API_URL",     "")          # 可选外部 LLM（兼容 OpenAI Chat API）
 LLM_API_KEY     = os.getenv("LLM_API_KEY",     "")
+# 聊天/抽取所用模型名（DeepSeek 填如 deepseek-chat；OpenAI 填 gpt-4o-mini 等）
+LLM_CHAT_MODEL  = os.getenv("LLM_CHAT_MODEL", "gpt-4o-mini")
 REQUEST_TIMEOUT = 10
 
 _ACTIVE_GREMLIN_ENDPOINT: Optional[str] = None
@@ -1133,7 +1135,7 @@ def _llm_extract(text: str, job_id: str, source_hint: str) -> None:
                 LLM_API_URL,
                 headers={"Authorization": f"Bearer {LLM_API_KEY}",
                          "Content-Type": "application/json"},
-                json={"model": "gpt-4o-mini",
+                json={"model": LLM_CHAT_MODEL,
                       "messages": [{"role": "user", "content": prompt}],
                       "temperature": 0.1},
                 timeout=60,

@@ -53,6 +53,19 @@ def _embedding_base_url() -> str:
     return _openai_api_origin(raw)
 
 
+def _effective_embedding_model() -> str:
+    """
+    请求发往阿里云 DashScope 兼容接口时，不能使用 OpenAI 默认的 text-embedding-3-small。
+    可通过 EMBEDDING_MODEL 显式覆盖，或设置 DASHSCOPE_EMBEDDING_MODEL（默认 text-embedding-v3）。
+    """
+    m = (EMBEDDING_MODEL or "").strip()
+    origin = _embedding_base_url().lower()
+    if ("dashscope" in origin) or ("aliyuncs.com" in origin and "compatible-mode" in origin):
+        if m in ("", "text-embedding-3-small", "text-embedding-ada-002"):
+            return os.getenv("DASHSCOPE_EMBEDDING_MODEL", "text-embedding-v3").strip() or "text-embedding-v3"
+    return m if m else "text-embedding-3-small"
+
+
 def _embedding_auth_header() -> str:
     key = EMBEDDING_API_KEY or os.getenv("LLM_API_KEY", "")
     return key
@@ -90,7 +103,8 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
 
     url = f"{base.rstrip('/')}/v1/embeddings"
     # 显式 UTF-8 请求体，避免含中文 input 时底层 http.client 按 latin-1 编码报错
-    body = json.dumps({"model": EMBEDDING_MODEL, "input": texts}, ensure_ascii=False).encode("utf-8")
+    model = _effective_embedding_model()
+    body = json.dumps({"model": model, "input": texts}, ensure_ascii=False).encode("utf-8")
     resp = requests.post(
         url,
         headers={
@@ -288,7 +302,7 @@ g.V().hasLabel('Fault').project('name','description','domain').
         "status":       "ok",
         "collection":   QDRANT_COLLECTION,
         "vector_dim":   dim,
-        "model":        EMBEDDING_MODEL,
+        "model":        _effective_embedding_model(),
         "faults_in_graph": len(faults),
         "upserted":     upserted,
         "qdrant_url":   QDRANT_URL,

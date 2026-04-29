@@ -4,11 +4,11 @@ import os
 import re
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 import vector_search as _vec
-from fastapi import Body, FastAPI, HTTPException, BackgroundTasks
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 app = FastAPI(
@@ -174,6 +174,36 @@ def _extract_data(payload: Dict[str, Any]) -> List[Any]:
     result = payload.get("result", {})
     data = result.get("data", [])
     return data if isinstance(data, list) else []
+
+
+# HugeGraph Gremlin HTTP 单次返回条数有上限（Gremlin Server 迭代批量默认约 64），
+# 未使用 range 分页时，一次遍历只能拿到「前几十条」。
+GREMLIN_RANGE_PAGE = 500
+
+
+def _gremlin_collect_paged(script_for_range: Callable[[int, int], str]) -> List[Any]:
+    """按固定步长 range(low,high) 分页执行 Gremlin，合并为完整列表。"""
+    aggregated: List[Any] = []
+    offset = 0
+    while True:
+        script = script_for_range(offset, offset + GREMLIN_RANGE_PAGE)
+        chunk = _extract_data(execute_gremlin(script))
+        if not chunk:
+            break
+        aggregated.extend(chunk)
+        if len(chunk) < GREMLIN_RANGE_PAGE:
+            break
+        offset += GREMLIN_RANGE_PAGE
+    return aggregated
+
+
+def _all_fault_names_ordered() -> List[str]:
+    rows = _gremlin_collect_paged(
+        lambda lo, hi: (
+            f"g.V().hasLabel('Fault').order().by('name').range({lo}, {hi}).values('name')"
+        ),
+    )
+    return [str(x) for x in rows]
 
 
 def ensure_schema_v2() -> None:
@@ -377,10 +407,12 @@ def admin_categories_init(
             cat_ids[s.code] = cid
 
     linked = 0
-    fault_rows = _extract_data(
-        execute_gremlin(
-            "g.V().hasLabel('Fault').project('vid','dom').by(id()).by(coalesce(values('domain'), constant('')))"
-        )
+    fault_rows = _gremlin_collect_paged(
+        lambda lo, hi: (
+            "g.V().hasLabel('Fault').order().by('name')"
+            f".range({lo}, {hi}).project('vid','dom')"
+            ".by(id()).by(coalesce(values('domain'), constant('')))"
+        ),
     )
     for row in fault_rows or []:
         if not isinstance(row, dict):
@@ -429,20 +461,23 @@ def admin_triggers_sync(top_k_per_alert: int = 2) -> Dict[str, Any]:
     now = int(time.time() * 1000)
     top_k = max(1, min(int(top_k_per_alert), 5))
 
-    faults_raw = _extract_data(
-        execute_gremlin(
-            "g.V().hasLabel('Fault').project('vid','name').by(id()).by(values('name'))"
-        )
+    faults_raw = _gremlin_collect_paged(
+        lambda lo, hi: (
+            "g.V().hasLabel('Fault').order().by('name')"
+            f".range({lo}, {hi}).project('vid','name').by(id()).by(values('name'))"
+        ),
     )
     faults: List[Dict[str, str]] = []
     for row in faults_raw or []:
         if isinstance(row, dict) and row.get("vid") and row.get("name"):
             faults.append({"vid": str(row["vid"]), "name": str(row["name"])})
 
-    alerts_raw = _extract_data(
-        execute_gremlin(
-            "g.V().hasLabel('Alert').project('vid','c').by(id()).by(coalesce(values('content'), constant('')))"
-        )
+    alerts_raw = _gremlin_collect_paged(
+        lambda lo, hi: (
+            "g.V().hasLabel('Alert').order().by('alert_id')"
+            f".range({lo}, {hi}).project('vid','c')"
+            ".by(id()).by(coalesce(values('content'), constant('')))"
+        ),
     )
     alerts: List[Dict[str, str]] = []
     for row in alerts_raw or []:
@@ -586,9 +621,116 @@ def add_relation(payload: AddRelationRequest, background_tasks: BackgroundTasks)
 
 @app.get("/graph/faults")
 def list_faults() -> Dict[str, Any]:
-    result = execute_gremlin("g.V().hasLabel('Fault').values('name').order()")
-    faults = _extract_data(result)
+    faults = _all_fault_names_ordered()
     return {"faults": faults, "count": len(faults)}
+
+
+_FAULT_DETAIL_PROJ = """
+.project('name','description','category','severity','domain','data_source','confidence','import_batch_id','created_at').
+  by(values('name')).
+  by(coalesce(values('description'), constant(''))).
+  by(coalesce(values('category'), constant(''))).
+  by(coalesce(values('severity'), constant(''))).
+  by(coalesce(values('domain'), constant(''))).
+  by(coalesce(values('data_source'), constant(''))).
+  by(coalesce(values('confidence'), constant(1.0))).
+  by(coalesce(values('import_batch_id'), constant(''))).
+  by(coalesce(values('created_at'), constant(0)))
+"""
+
+
+def _normalize_fault_detail_rows(rows: List[Any]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        conf = row.get("confidence", 1.0)
+        try:
+            conf_f = float(conf) if conf is not None else 1.0
+        except (TypeError, ValueError):
+            conf_f = 1.0
+        try:
+            ts = int(row.get("created_at") or 0)
+        except (TypeError, ValueError):
+            ts = 0
+        out.append(
+            {
+                "name":             str(row.get("name") or ""),
+                "description":      str(row.get("description") or ""),
+                "category":         str(row.get("category") or ""),
+                "severity":         str(row.get("severity") or ""),
+                "domain":           str(row.get("domain") or ""),
+                "data_source":      str(row.get("data_source") or ""),
+                "confidence":       conf_f,
+                "import_batch_id":  str(row.get("import_batch_id") or ""),
+                "created_at":     ts,
+            }
+        )
+    return out
+
+
+@app.get("/graph/faults/detail")
+def list_faults_detail(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    q: str = Query("", max_length=200),
+) -> Dict[str, Any]:
+    """
+    分页返回 Fault 顶点属性（供图谱管理页表格）。
+    q 非空时在内存中按名称子串过滤（与全量故障名列表比对，适合万级以内）。
+    """
+    page_size = min(page_size, 200)
+    total_r = execute_gremlin("g.V().hasLabel('Fault').count()")
+    graph_total = int((_extract_data(total_r) or [0])[0])
+
+    needle = (q or "").strip().lower()
+    if needle:
+        all_names = _all_fault_names_ordered()
+        filtered = [n for n in all_names if needle in n.lower()]
+        total = len(filtered)
+        offset = (page - 1) * page_size
+        slice_names = filtered[offset : offset + page_size]
+        if not slice_names:
+            return {
+                "items":       [],
+                "total":       total,
+                "graph_total": graph_total,
+                "page":        page,
+                "page_size":   page_size,
+                "q":           q.strip(),
+            }
+        script = (
+            "g.V().hasLabel('Fault').has('name', within(names))"
+            + _FAULT_DETAIL_PROJ
+        )
+        rows = _extract_data(execute_gremlin(script, {"names": slice_names}))
+        # within 结果顺序不定，按 slice_names 排序
+        by_name = {str(r.get("name")): r for r in _normalize_fault_detail_rows(rows)}
+        items = [by_name[n] for n in slice_names if n in by_name]
+        return {
+            "items":       items,
+            "total":       total,
+            "graph_total": graph_total,
+            "page":        page,
+            "page_size":   page_size,
+            "q":           q.strip(),
+        }
+
+    offset = (page - 1) * page_size
+    script = (
+        f"g.V().hasLabel('Fault').order().by('name').range({offset}, {offset + page_size})"
+        + _FAULT_DETAIL_PROJ
+    )
+    rows = _extract_data(execute_gremlin(script))
+    items = _normalize_fault_detail_rows(rows)
+    return {
+        "items":       items,
+        "total":       graph_total,
+        "graph_total": graph_total,
+        "page":        page,
+        "page_size":   page_size,
+        "q":           "",
+    }
 
 
 @app.get("/graph/query")
@@ -758,8 +900,7 @@ def recommend_faults(payload: RecommendRequest) -> Dict[str, Any]:
     无索引或未配置 embedding 时降级为关键词匹配。
     """
     query_lower = payload.query.lower()
-    all_faults_result = execute_gremlin("g.V().hasLabel('Fault').values('name').order()")
-    all_faults: List[str] = _extract_data(all_faults_result)
+    all_faults: List[str] = _all_fault_names_ordered()
 
     method = "keyword"
     top: List[Dict[str, Any]] = []

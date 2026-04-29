@@ -138,3 +138,98 @@
   font-size: 12px;
   font-weight: 600;
 }
+
+/* 故障列表表格 */
+.graph-body .fault-table-panel {
+  max-width: none;
+  width: 100%;
+}
+.fault-table-hint {
+  font-size: 0.88rem;
+  color: var(--muted);
+  margin: 0 0 1rem;
+  line-height: 1.5;
+}
+.fault-table-toolbar {
+  margin-bottom: 1rem;
+}
+.fault-table-search {
+  max-width: 420px;
+}
+.fault-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg2);
+}
+.fault-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.fault-table th,
+.fault-table td {
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.fault-table th {
+  background: var(--bg);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fault-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.fault-table tbody tr:hover td {
+  background: rgba(99, 102, 241, 0.06);
+}
+.fault-name-cell {
+  font-weight: 500;
+  max-width: 200px;
+  word-break: break-word;
+}
+.desc-cell {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fault-table-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 2rem 1rem !important;
+}
+.nowrap {
+  white-space: nowrap;
+}
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.btn-page {
+  padding: 0.45rem 1rem;
+  background: var(--bg2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+.btn-page:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+.btn-page:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.page-info {
+  font-size: 0.85rem;
+  color: var(--muted);
+}

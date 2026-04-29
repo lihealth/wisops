@@ -3,12 +3,26 @@ import './GraphPage.css'
 
 const GRAPH_BASE = '/graph-api'
 
+const FAULT_TABLE_PAGE_SIZE = 50
+
+interface FaultRow {
+  name: string
+  description: string
+  category: string
+  severity: string
+  domain: string
+  data_source: string
+  confidence: number
+  import_batch_id: string
+  created_at: number
+}
+
 interface Solution { id: string; name: string; description: string }
 interface GraphNode { id: string; label: string; type: 'Fault' | 'Solution' }
 interface GraphEdge { id: string; source: string; target: string; label: string }
 
 export default function GraphPage() {
-  const [tab, setTab] = useState<'query' | 'add' | 'visual'>('query')
+  const [tab, setTab] = useState<'query' | 'add' | 'visual' | 'catalog'>('query')
 
   return (
     <div className="graph-page">
@@ -17,14 +31,162 @@ export default function GraphPage() {
         <div className="graph-tabs">
           <button className={tab === 'query' ? 'tab active' : 'tab'} onClick={() => setTab('query')}>查询方案</button>
           <button className={tab === 'visual' ? 'tab active' : 'tab'} onClick={() => setTab('visual')}>图谱可视化</button>
+          <button className={tab === 'catalog' ? 'tab active' : 'tab'} onClick={() => setTab('catalog')}>故障列表</button>
           <button className={tab === 'add'   ? 'tab active' : 'tab'} onClick={() => setTab('add')}>录入故障</button>
         </div>
       </div>
       <div className="graph-body">
         {tab === 'query' && <QueryPanel />}
         {tab === 'visual' && <VisualPanel />}
+        {tab === 'catalog' && <FaultTablePanel />}
         {tab === 'add' && <AddPanel />}
       </div>
+    </div>
+  )
+}
+
+function formatFaultTime(ms: number): string {
+  if (!ms || ms <= 0) return '—'
+  try {
+    return new Date(ms).toLocaleString('zh-CN', { hour12: false })
+  } catch {
+    return '—'
+  }
+}
+
+function FaultTablePanel() {
+  const [items, setItems] = useState<FaultRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [graphTotal, setGraphTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [qInput, setQInput] = useState('')
+  const [q, setQ] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setQ(qInput.trim()), 350)
+    return () => window.clearTimeout(t)
+  }, [qInput])
+
+  useEffect(() => {
+    setPage(1)
+  }, [q])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(FAULT_TABLE_PAGE_SIZE),
+    })
+    if (q) params.set('q', q)
+    fetch(`${GRAPH_BASE}/graph/faults/detail?${params}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then((d) => {
+        if (cancelled) return
+        setItems(d.items ?? [])
+        setTotal(typeof d.total === 'number' ? d.total : 0)
+        setGraphTotal(typeof d.graph_total === 'number' ? d.graph_total : (d.total ?? 0))
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : '加载失败')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [page, q])
+
+  const totalPages = Math.max(1, Math.ceil(total / FAULT_TABLE_PAGE_SIZE))
+
+  return (
+    <div className="panel fault-table-panel">
+      <p className="fault-table-hint">
+        展示 HugeGraph 中已录入的故障顶点（共 <strong>{graphTotal}</strong> 条）
+        {q ? `，筛选命中 ${total} 条` : ''}
+        。
+      </p>
+      <div className="fault-table-toolbar">
+        <input
+          className="text-input fault-table-search"
+          placeholder="按名称筛选（子串匹配）…"
+          value={qInput}
+          onChange={(e) => setQInput(e.target.value)}
+        />
+      </div>
+
+      {error && <div className="msg-error">{error}</div>}
+      {loading && <div className="empty">加载中…</div>}
+
+      {!loading && !error && (
+        <div className="fault-table-wrap">
+          <table className="fault-table">
+            <thead>
+              <tr>
+                <th>故障名称</th>
+                <th>描述</th>
+                <th>领域</th>
+                <th>来源</th>
+                <th>严重级别</th>
+                <th>分类</th>
+                <th>置信度</th>
+                <th>录入时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="fault-table-empty">暂无数据</td>
+                </tr>
+              ) : (
+                items.map((row) => (
+                  <tr key={row.name}>
+                    <td className="fault-name-cell">{row.name}</td>
+                    <td className="desc-cell" title={row.description}>{row.description || '—'}</td>
+                    <td>{row.domain || '—'}</td>
+                    <td>{row.data_source || '—'}</td>
+                    <td>{row.severity || '—'}</td>
+                    <td>{row.category || '—'}</td>
+                    <td>{typeof row.confidence === 'number' ? row.confidence.toFixed(2) : '—'}</td>
+                    <td className="nowrap">{formatFaultTime(row.created_at)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && total > 0 && (
+        <div className="pagination">
+          <button
+            type="button"
+            className="btn-page"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            上一页
+          </button>
+          <span className="page-info">
+            第 {page} / {totalPages} 页（每页 {FAULT_TABLE_PAGE_SIZE} 条）
+          </span>
+          <button
+            type="button"
+            className="btn-page"
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          >
+            下一页
+          </button>
+        </div>
+      )}
     </div>
   )
 }

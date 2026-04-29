@@ -24,6 +24,9 @@ REQUEST_TIMEOUT = int(os.getenv("EMBEDDING_TIMEOUT", "60"))
 GremlinFn = Callable[[str, Optional[Dict[str, Any]]], Dict[str, Any]]
 ExtractFn = Callable[[Dict[str, Any]], List[Any]]
 
+# 与 main.py GREMLIN_RANGE_PAGE 一致：HugeGraph 单次 Gremlin 返回条数有上限，须 range 分页。
+_GREMLIN_RANGE_PAGE = 500
+
 
 def _openai_api_origin(url: str) -> str:
     """
@@ -244,14 +247,24 @@ def sync_fault_vectors_from_graph(
     if not embedding_configured():
         raise RuntimeError("未配置 Embedding API：请设置 EMBEDDING_API_URL+EMBEDDING_API_KEY，或 LLM_API_URL+LLM_API_KEY")
 
-    script = """
-g.V().hasLabel('Fault').project('name','description','domain').
+    faults: List[Dict[str, str]] = []
+    offset = 0
+    rows: List[Any] = []
+    while True:
+        script = f"""
+g.V().hasLabel('Fault').order().by('name').range({offset}, {offset + _GREMLIN_RANGE_PAGE}).project('name','description','domain').
   by(values('name')).
   by(coalesce(values('description'), constant(''))).
   by(coalesce(values('domain'), constant('')))
 """
-    rows = extract_data(execute_gremlin(script))
-    faults: List[Dict[str, str]] = []
+        chunk = extract_data(execute_gremlin(script))
+        if not chunk:
+            break
+        rows.extend(chunk)
+        if len(chunk) < _GREMLIN_RANGE_PAGE:
+            break
+        offset += _GREMLIN_RANGE_PAGE
+
     for row in rows or []:
         if not isinstance(row, dict):
             continue

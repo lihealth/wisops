@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useRole } from '../RoleContext'
 import './ExtractPage.css'
 
 const GRAPH_BASE = '/graph-api'
@@ -24,8 +25,38 @@ interface QueueItem {
   created_at: number
 }
 
+interface ApproveResult {
+  status: string
+  item_id: string
+  dify_sync?: {
+    ok?: boolean
+    document_id?: string
+    message?: string
+  }
+  graph_document_link?: {
+    ok?: boolean
+    message?: string
+    document_vertex_name?: string
+  }
+}
+
+interface DocLinkItem {
+  item_id: string
+  job_id: string
+  fault_name: string
+  solution_name: string
+  document_id: string
+  created_at: number
+  graph_document_link?: {
+    ok?: boolean
+    message?: string
+    document_vertex_name?: string
+  }
+}
+
 export default function ExtractPage() {
-  const [tab, setTab] = useState<'submit' | 'jobs' | 'queue'>('submit')
+  const [tab, setTab] = useState<'submit' | 'jobs' | 'queue' | 'trace'>('submit')
+  const [latestApprove, setLatestApprove] = useState<ApproveResult | null>(null)
   return (
     <div className="extract-page">
       <div className="extract-header">
@@ -34,12 +65,14 @@ export default function ExtractPage() {
           <button className={tab === 'submit' ? 'tab active' : 'tab'} onClick={() => setTab('submit')}>提交文档</button>
           <button className={tab === 'jobs'   ? 'tab active' : 'tab'} onClick={() => setTab('jobs')}>任务列表</button>
           <button className={tab === 'queue'  ? 'tab active' : 'tab'} onClick={() => setTab('queue')}>审核队列</button>
+          <button className={tab === 'trace'  ? 'tab active' : 'tab'} onClick={() => setTab('trace')}>文档追溯</button>
         </div>
       </div>
       <div className="extract-body">
         {tab === 'submit' && <SubmitPanel onSubmitted={() => setTab('jobs')} />}
         {tab === 'jobs'   && <JobsPanel onGoQueue={() => setTab('queue')} />}
-        {tab === 'queue'  && <QueuePanel />}
+        {tab === 'queue'  && <QueuePanel onApproved={(r) => { setLatestApprove(r); setTab('trace') }} />}
+        {tab === 'trace'  && <DocTracePanel latestApprove={latestApprove} />}
       </div>
     </div>
   )
@@ -194,10 +227,15 @@ function JobsPanel({ onGoQueue }: { onGoQueue: () => void }) {
   )
 }
 
-function QueuePanel() {
+function QueuePanel({ onApproved }: { onApproved: (r: ApproveResult) => void }) {
+  const { can } = useRole()
+  const canApprove = can('approve_extract')
   const [items, setItems]     = useState<QueueItem[]>([])
   const [loading, setLoading] = useState(true)
   const [opLoading, setOp]    = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [batchLoading, setBatchLoading] = useState(false)
+  const [batchNotice, setBatchNotice] = useState<{ text: string; ok: boolean } | null>(null)
 
   const fetchQueue = async () => {
     try {
@@ -209,22 +247,127 @@ function QueuePanel() {
 
   useEffect(() => { fetchQueue() }, [])
 
+  useEffect(() => {
+    const ids = new Set(items.map((i) => i.id))
+    setSelected((prev) => {
+      const next = new Set<string>()
+      prev.forEach((id) => { if (ids.has(id)) next.add(id) })
+      return next
+    })
+  }, [items])
+
+  const toggleSel = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectAllPending = () => {
+    setSelected(new Set(items.map((i) => i.id)))
+  }
+
   const act = async (id: string, action: 'approve' | 'reject') => {
     setOp(id)
+    setBatchNotice(null)
     try {
-      await fetch(`${GRAPH_BASE}/extract/queue/${id}/${action}`, { method: 'POST' })
+      const resp = await fetch(`${GRAPH_BASE}/extract/queue/${id}/${action}`, { method: 'POST' })
+      if (action === 'approve' && resp.ok) {
+        const data = await resp.json()
+        onApproved(data as ApproveResult)
+      }
       setItems((prev) => prev.filter((it) => it.id !== id))
+      setSelected((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
     } catch { /* ignore */ } finally { setOp(null) }
   }
 
+  const batchAct = async (action: 'approve' | 'reject') => {
+    const ids = Array.from(selected)
+    if (ids.length === 0 || batchLoading) return
+    setBatchLoading(true)
+    setBatchNotice(null)
+    const path = action === 'approve' ? 'batch-approve' : 'batch-reject'
+    try {
+      const resp = await fetch(`${GRAPH_BASE}/extract/queue/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_ids: ids }),
+      })
+      let data: { succeeded?: number; failed?: number; detail?: string; message?: string } = {}
+      try { data = await resp.json() } catch { /* ignore */ }
+      if (!resp.ok) {
+        const msg = typeof data.detail === 'string' ? data.detail : (data.message || `HTTP ${resp.status}`)
+        throw new Error(msg)
+      }
+      setBatchNotice({
+        ok: true,
+        text: `批量${action === 'approve' ? '通过' : '拒绝'}完成：成功 ${data.succeeded ?? 0}，未成功 ${data.failed ?? 0}`,
+      })
+      setSelected(new Set())
+      await fetchQueue()
+    } catch (e) {
+      setBatchNotice({ ok: false, text: e instanceof Error ? e.message : '批量操作失败' })
+    } finally {
+      setBatchLoading(false)
+    }
+  }
+
   if (loading) return <div className="loading">加载中…</div>
+
+  const selCount = selected.size
+  const busy = batchLoading || opLoading !== null
 
   return (
     <div className="panel">
       <div className="panel-toolbar">
         <span className="section-title">待审核条目（{items.length} 条）</span>
-        <button className="btn-outline" onClick={fetchQueue}>刷新</button>
+        <button className="btn-outline" onClick={fetchQueue} disabled={busy}>刷新</button>
       </div>
+
+      {items.length > 0 && canApprove && (
+        <div className="queue-batch-bar">
+          <label className="queue-check-label">
+            <input
+              type="checkbox"
+              checked={selCount > 0 && selCount === items.length}
+              ref={(el) => {
+                if (!el) return
+                el.indeterminate = selCount > 0 && selCount < items.length
+              }}
+              onChange={(e) => { e.target.checked ? selectAllPending() : setSelected(new Set()) }}
+              disabled={busy}
+            />
+            <span>全选</span>
+          </label>
+          <span className="queue-batch-hint">已选 {selCount} 条</span>
+          <button
+            type="button"
+            className="btn-batch-approve"
+            disabled={selCount === 0 || busy}
+            onClick={() => batchAct('approve')}
+          >
+            ✅ 批量通过
+          </button>
+          <button
+            type="button"
+            className="btn-batch-reject"
+            disabled={selCount === 0 || busy}
+            onClick={() => batchAct('reject')}
+          >
+            ❌ 批量拒绝
+          </button>
+        </div>
+      )}
+      {items.length > 0 && !canApprove && (
+        <div className="msg-error" style={{ fontSize: '0.82rem' }}>🔒 当前角色无审核权限，仅可查看待审条目</div>
+      )}
+      {batchNotice && <div className={batchNotice.ok ? 'msg-ok' : 'msg-error'}>{batchNotice.text}</div>}
 
       {items.length === 0 ? (
         <div className="empty">队列为空，暂无待审核条目</div>
@@ -233,6 +376,14 @@ function QueuePanel() {
           {items.map((it) => (
             <div key={it.id} className="queue-card">
               <div className="queue-meta">
+                <label className="queue-check-label queue-check-inline">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(it.id)}
+                    onChange={() => toggleSel(it.id)}
+                    disabled={busy}
+                  />
+                </label>
                 <span className="mono">#{it.id}</span>
                 <span className="conf-badge">置信度 {Math.round(it.confidence * 100)}%</span>
                 <span className="source-tag">来源：{it.source_hint}</span>
@@ -253,25 +404,121 @@ function QueuePanel() {
                   </div>
                 )}
               </div>
-              <div className="queue-actions">
-                <button
-                  className="btn-approve"
-                  onClick={() => act(it.id, 'approve')}
-                  disabled={opLoading === it.id}
-                >
-                  ✅ 通过入库
-                </button>
-                <button
-                  className="btn-reject"
-                  onClick={() => act(it.id, 'reject')}
-                  disabled={opLoading === it.id}
-                >
-                  ❌ 拒绝
-                </button>
-              </div>
+              {canApprove && (
+                <div className="queue-actions">
+                  <button
+                    className="btn-approve"
+                    onClick={() => act(it.id, 'approve')}
+                    disabled={busy || opLoading === it.id}
+                  >
+                    ✅ 通过入库
+                  </button>
+                  <button
+                    className="btn-reject"
+                    onClick={() => act(it.id, 'reject')}
+                    disabled={busy || opLoading === it.id}
+                  >
+                    ❌ 拒绝
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+function DocTracePanel({ latestApprove }: { latestApprove: ApproveResult | null }) {
+  const [items, setItems] = useState<DocLinkItem[]>([])
+  const [docId, setDocId] = useState('')
+  const [jobId, setJobId] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const fetchLinks = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const params = new URLSearchParams({ limit: '100' })
+      if (jobId.trim()) params.set('job_id', jobId.trim())
+      const resp = await fetch(`${GRAPH_BASE}/extract/doc-links?${params.toString()}`)
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      const data = await resp.json()
+      let rows: DocLinkItem[] = data.items ?? []
+      if (docId.trim()) {
+        const needle = docId.trim().toLowerCase()
+        rows = rows.filter((r) => String(r.document_id || '').toLowerCase().includes(needle))
+      }
+      setItems(rows)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { fetchLinks() }, [])
+
+  const copyText = async (text: string) => {
+    if (!text) return
+    try { await navigator.clipboard.writeText(text) } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="panel doc-trace-panel">
+      <div className="panel-toolbar">
+        <span className="section-title">文档追溯索引</span>
+        <button className="btn-outline" onClick={fetchLinks}>刷新</button>
+      </div>
+      {latestApprove && (
+        <div className="msg-ok">
+          最近一次通过：document_id = {latestApprove.dify_sync?.document_id || '—'}，
+          graph_link = {latestApprove.graph_document_link?.message || '—'}
+        </div>
+      )}
+      <div className="form-row">
+        <input
+          className="text-input"
+          placeholder="按 document_id 过滤（支持子串）"
+          value={docId}
+          onChange={(e) => setDocId(e.target.value)}
+        />
+        <input
+          className="text-input"
+          placeholder="按 job_id 过滤（精确匹配）"
+          value={jobId}
+          onChange={(e) => setJobId(e.target.value)}
+        />
+        <button className="btn-primary" onClick={fetchLinks}>查询</button>
+      </div>
+
+      {error && <div className="msg-error">❌ {error}</div>}
+      {loading ? (
+        <div className="loading">加载中…</div>
+      ) : items.length === 0 ? (
+        <div className="empty">暂无追溯数据</div>
+      ) : (
+        <table className="data-table">
+          <thead>
+            <tr><th>item_id</th><th>job_id</th><th>document_id</th><th>故障/方案</th><th>图谱映射</th><th>操作</th></tr>
+          </thead>
+          <tbody>
+            {items.map((it) => (
+              <tr key={`${it.item_id}-${it.document_id}`}>
+                <td className="mono">{it.item_id}</td>
+                <td className="mono">{it.job_id}</td>
+                <td className="mono">{it.document_id || '—'}</td>
+                <td>{it.fault_name} / {it.solution_name}</td>
+                <td>{it.graph_document_link?.message || '—'}</td>
+                <td>
+                  <button className="btn-outline btn-sm" onClick={() => copyText(it.document_id)}>复制 document_id</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   )

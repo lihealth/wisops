@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRole } from '../RoleContext'
 import './GraphPage.css'
 
 const GRAPH_BASE = '/graph-api'
@@ -17,12 +18,24 @@ interface FaultRow {
   created_at: number
 }
 
+interface TriggerAuditRow {
+  edge_id: string
+  alert_id: string
+  fault_name: string
+  confidence: number
+  method: string
+  rule_name: string
+  created_at: number
+}
+
 interface Solution { id: string; name: string; description: string }
 interface GraphNode { id: string; label: string; type: 'Fault' | 'Solution' }
 interface GraphEdge { id: string; source: string; target: string; label: string }
 
 export default function GraphPage() {
-  const [tab, setTab] = useState<'query' | 'add' | 'visual' | 'catalog'>('query')
+  const { can } = useRole()
+  const canWrite = can('write_graph')
+  const [tab, setTab] = useState<'query' | 'add' | 'visual' | 'catalog' | 'triggers' | 'docTrace'>('query')
 
   return (
     <div className="graph-page">
@@ -32,14 +45,20 @@ export default function GraphPage() {
           <button className={tab === 'query' ? 'tab active' : 'tab'} onClick={() => setTab('query')}>查询方案</button>
           <button className={tab === 'visual' ? 'tab active' : 'tab'} onClick={() => setTab('visual')}>图谱可视化</button>
           <button className={tab === 'catalog' ? 'tab active' : 'tab'} onClick={() => setTab('catalog')}>故障列表</button>
-          <button className={tab === 'add'   ? 'tab active' : 'tab'} onClick={() => setTab('add')}>录入故障</button>
+          <button className={tab === 'triggers' ? 'tab active' : 'tab'} onClick={() => setTab('triggers')}>TRIGGERS 审计</button>
+          <button className={tab === 'docTrace' ? 'tab active' : 'tab'} onClick={() => setTab('docTrace')}>文档追溯</button>
+          {canWrite && (
+            <button className={tab === 'add' ? 'tab active' : 'tab'} onClick={() => setTab('add')}>录入故障</button>
+          )}
         </div>
       </div>
       <div className="graph-body">
         {tab === 'query' && <QueryPanel />}
         {tab === 'visual' && <VisualPanel />}
         {tab === 'catalog' && <FaultTablePanel />}
-        {tab === 'add' && <AddPanel />}
+        {tab === 'triggers' && <TriggersAuditPanel />}
+        {tab === 'docTrace' && <DocumentTracePanel />}
+        {tab === 'add' && (canWrite ? <AddPanel /> : null)}
       </div>
     </div>
   )
@@ -247,115 +266,377 @@ function FaultTablePanel() {
   )
 }
 
-function formatEdgeRelationLabel(raw: string): string {
-  const t = (raw || '').trim()
-  if (t === 'HAS_SOLUTION' || t === '') return '关联方案'
-  return t
+function TriggersAuditPanel() {
+  const [items, setItems] = useState<TriggerAuditRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
+  const [method, setMethod] = useState('')
+  const [ruleNameInput, setRuleNameInput] = useState('')
+  const [ruleName, setRuleName] = useState('')
+  const [minConfidence, setMinConfidence] = useState(0.8)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setRuleName(ruleNameInput.trim()), 300)
+    return () => window.clearTimeout(t)
+  }, [ruleNameInput])
+
+  useEffect(() => {
+    setPage(1)
+  }, [method, ruleName, minConfidence, pageSize])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+      min_confidence: String(minConfidence),
+    })
+    if (method) params.set('method', method)
+    if (ruleName) params.set('rule_name', ruleName)
+    fetch(`${GRAPH_BASE}/admin/triggers/audit?${params.toString()}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then((d) => {
+        if (cancelled) return
+        setItems(d.items ?? [])
+        setTotal(typeof d.total === 'number' ? d.total : 0)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : '加载失败')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [page, pageSize, method, ruleName, minConfidence])
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  return (
+    <div className="panel fault-table-panel">
+      <p className="fault-table-hint">
+        该视图展示 <strong>Alert → Fault</strong> 的 <strong>TRIGGERS</strong> 关联审计明细，可按规则名、方法与置信度筛选。
+      </p>
+
+      <div className="triggers-toolbar">
+        <label className="fault-page-size-label">
+          匹配方法
+          <select className="fault-page-size" value={method} onChange={(e) => setMethod(e.target.value)}>
+            <option value="">全部</option>
+            <option value="rule">rule</option>
+            <option value="fuzzy">fuzzy</option>
+          </select>
+        </label>
+        <label className="fault-page-size-label">
+          最低置信度
+          <select
+            className="fault-page-size"
+            value={minConfidence}
+            onChange={(e) => setMinConfidence(Number(e.target.value))}
+          >
+            <option value={0.7}>0.70</option>
+            <option value={0.8}>0.80</option>
+            <option value={0.9}>0.90</option>
+          </select>
+        </label>
+        <input
+          className="text-input triggers-rule-search"
+          placeholder="按 rule_name 筛选（子串）…"
+          value={ruleNameInput}
+          onChange={(e) => setRuleNameInput(e.target.value)}
+        />
+        <label className="fault-page-size-label">
+          每页
+          <select
+            className="fault-page-size"
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+          >
+            {FAULT_PAGE_SIZE_OPTIONS.map((n) => (
+              <option key={n} value={n}>{n} 条</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {error && <div className="msg-error">{error}</div>}
+      {loading && <div className="empty">加载中…</div>}
+
+      {!loading && !error && (
+        <div className="fault-table-range">
+          共 {total} 条（第 {page} / {totalPages} 页）
+        </div>
+      )}
+
+      {!loading && total > 0 && (
+        <div className="pagination pagination-top">
+          <button type="button" className="btn-page" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+            上一页
+          </button>
+          <span className="page-info">第 {page} / {totalPages} 页</span>
+          <button type="button" className="btn-page" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+            下一页
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && (
+        <div className="fault-table-wrap">
+          <table className="fault-table">
+            <thead>
+              <tr>
+                <th>alert_id</th>
+                <th>fault_name</th>
+                <th>confidence</th>
+                <th>method</th>
+                <th>rule_name</th>
+                <th>created_at</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="fault-table-empty">暂无数据</td>
+                </tr>
+              ) : (
+                items.map((row) => (
+                  <tr key={row.edge_id}>
+                    <td className="nowrap">{row.alert_id}</td>
+                    <td>{row.fault_name}</td>
+                    <td>{row.confidence.toFixed(2)}</td>
+                    <td>{row.method || '—'}</td>
+                    <td>{row.rule_name || '—'}</td>
+                    <td className="nowrap">{formatFaultTime(row.created_at)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
 }
 
-/** 保证圆周不相贴、长标签中间有留白；多方案时相邻方案圆也不互压 */
-function computeSpokeLayoutRadius(
-  solutionCount: number,
-  faultR: number,
-  solR: number,
-  surfaceGap: number,
-): number {
-  const minRadial = faultR + solR + surfaceGap
-  if (solutionCount <= 0) return minRadial
-  if (solutionCount === 1) {
-    return Math.max(minRadial, faultR + solR + 115)
+function DocumentTracePanel() {
+  const [documentId, setDocumentId] = useState('')
+  const [items, setItems] = useState<Array<{
+    document_id: string
+    document_vertex: string
+    solution_name: string
+    fault_names: string[]
+    chunk_ref: string
+  }>>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const search = async () => {
+    if (!documentId.trim()) return
+    setLoading(true)
+    setError('')
+    try {
+      const resp = await fetch(`${GRAPH_BASE}/graph/document-trace?document_id=${encodeURIComponent(documentId.trim())}`)
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      const data = await resp.json()
+      setItems(data.items ?? [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '查询失败')
+      setItems([])
+    } finally {
+      setLoading(false)
+    }
   }
-  const minChord = 2 * solR + 52
-  const angleHalf = Math.PI / solutionCount
-  const chord = (rad: number) => 2 * rad * Math.sin(angleHalf)
-  let r = minRadial
-  let guard = 0
-  while (chord(r) < minChord && r < 360 && guard < 40) {
-    r += 10
-    guard += 1
-  }
-  return Math.min(Math.max(r, minRadial), 300)
+
+  return (
+    <div className="panel fault-table-panel">
+      <p className="fault-table-hint">
+        输入 Dify 的 <strong>document_id</strong>，反查图谱中的 <strong>Solution / Fault</strong> 关联。
+      </p>
+      <div className="search-row">
+        <input
+          className="text-input"
+          placeholder="输入 document_id（如 45a2de26-...）"
+          value={documentId}
+          onChange={(e) => setDocumentId(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && search()}
+        />
+        <button className="btn-primary" onClick={search} disabled={loading || !documentId.trim()}>
+          {loading ? '查询中…' : '反查'}
+        </button>
+      </div>
+      {error && <div className="msg-error">{error}</div>}
+      {!loading && items.length === 0 && !error && <div className="empty">暂无结果</div>}
+      {!loading && items.length > 0 && (
+        <div className="fault-table-wrap">
+          <table className="fault-table">
+            <thead>
+              <tr>
+                <th>document_id</th>
+                <th>solution_name</th>
+                <th>fault_names</th>
+                <th>chunk_ref</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it, idx) => (
+                <tr key={`${it.solution_name}-${idx}`}>
+                  <td className="mono">{it.document_id}</td>
+                  <td>{it.solution_name}</td>
+                  <td>{(it.fault_names ?? []).join('，') || '—'}</td>
+                  <td className="mono">{it.chunk_ref || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
 }
 
-/** 从圆心连线缩短到圆周，便于画边与标签 */
-function shortenChord(
+// ── Graph Visualisation helpers ───────────────────────────────────────────────
+
+const EDGE_LABEL_MAP: Record<string, string> = {
+  HAS_SOLUTION:  '关联方案',
+  TRIGGERS:      '触发',
+  CLASSIFIED_AS: '分类',
+  INVOLVES:      '涉及',
+  CAUSED_BY:     '导致',
+  RESOLVED_BY:   '解决',
+}
+function fmtEdge(raw: string) { return EDGE_LABEL_MAP[raw] ?? raw ?? '关联' }
+
+const NODE_R: Record<string, number> = {
+  Fault: 48, Solution: 40, Alert: 30, Category: 28, Incident: 32,
+}
+const NODE_CLASS: Record<string, string> = {
+  Fault: 'fault-node', Solution: 'solution-node',
+  Alert: 'alert-node', Category: 'category-node', Incident: 'incident-node',
+}
+
+function initPositions(
+  nodes: GraphNode[],
   cx: number,
   cy: number,
-  tx: number,
-  ty: number,
-  fromR: number,
-  toR: number,
-) {
-  const dx = tx - cx
-  const dy = ty - cy
-  const len = Math.hypot(dx, dy) || 1
-  const ux = dx / len
-  const uy = dy / len
-  return {
-    x1: cx + ux * fromR,
-    y1: cy + uy * fromR,
-    x2: tx - ux * toR,
-    y2: ty - uy * toR,
-    ux,
-    uy,
-    px: -uy,
-    py: ux,
+): Record<string, { x: number; y: number }> {
+  const pos: Record<string, { x: number; y: number }> = {}
+  const byType: Record<string, GraphNode[]> = {}
+  for (const n of nodes) {
+    ;(byType[n.type] = byType[n.type] ?? []).push(n)
   }
+  // 主 Fault 居中
+  ;(byType['Fault'] ?? []).forEach((n, i) => {
+    if (i === 0) pos[n.id] = { x: cx, y: cy }
+    else {
+      const span = Math.min(Math.PI * 1.2, ((byType['Fault']?.length ?? 1) - 1) * 0.4 + 0.5)
+      const a = Math.PI - span / 2 + span * (i - 1) / Math.max((byType['Fault']?.length ?? 2) - 2, 1)
+      pos[n.id] = { x: cx + 220 * Math.cos(a), y: cy + 220 * Math.sin(a) }
+    }
+  })
+  // Solutions 第一圈
+  const sols = byType['Solution'] ?? []
+  sols.forEach((n, i) => {
+    const a = (2 * Math.PI * i) / Math.max(sols.length, 1) - Math.PI / 2
+    pos[n.id] = { x: cx + 155 * Math.cos(a), y: cy + 155 * Math.sin(a) }
+  })
+  // Alerts 第二圈右侧
+  const alerts = byType['Alert'] ?? []
+  alerts.forEach((n, i) => {
+    const span = Math.min(Math.PI * 1.4, (alerts.length - 1) * 0.38 + 0.5)
+    const a = alerts.length === 1 ? 0 : -span / 2 + (span * i) / (alerts.length - 1)
+    pos[n.id] = { x: cx + 250 * Math.cos(a), y: cy + 250 * Math.sin(a) }
+  })
+  // Category 下方
+  ;(byType['Category'] ?? []).forEach((n, i) => {
+    const a = Math.PI / 2 + (i - ((byType['Category']?.length ?? 1) - 1) / 2) * 0.5
+    pos[n.id] = { x: cx + 180 * Math.cos(a), y: cy + 180 * Math.sin(a) }
+  })
+  return pos
 }
+
+interface DragState { id: string; ox: number; oy: number; mx: number; my: number }
 
 function VisualPanel() {
   const [query, setQuery] = useState('')
   const [faults, setFaults] = useState<string[]>([])
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [edges, setEdges] = useState<GraphEdge[]>([])
+  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [hoverSpoke, setHoverSpoke] = useState<string | null>(null)
-  const [hoverFault, setHoverFault] = useState(false)
+  const [hover, setHover] = useState<string | null>(null)
+  const dragRef = useRef<DragState | null>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
+
+  const VW = 880, VH = 520
+  const CX = VW / 2, CY = VH / 2 - 10
 
   useEffect(() => {
-    fetch(`${GRAPH_BASE}/graph/faults`)
+    fetch(`${GRAPH_BASE}/graph/faults?page_size=500`)
       .then((r) => r.json())
-      .then((d) => setFaults(d.faults ?? []))
+      .then((d) => setFaults((d.faults ?? []).map((f: string | { name: string }) => typeof f === 'string' ? f : f.name)))
       .catch(() => {})
   }, [])
 
   const search = async () => {
     if (!query.trim()) return
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     try {
       const res = await fetch(`${GRAPH_BASE}/graph/visualize?fault_name=${encodeURIComponent(query)}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      setNodes(data.nodes ?? [])
-      setEdges(data.edges ?? [])
+      const ns: GraphNode[] = data.nodes ?? []
+      const es: GraphEdge[] = data.edges ?? []
+      setNodes(ns); setEdges(es)
+      setPositions(initPositions(ns, CX, CY))
     } catch (e) {
       setError(e instanceof Error ? e.message : '查询失败')
-      setNodes([])
-      setEdges([])
-    } finally {
-      setLoading(false)
-    }
+      setNodes([]); setEdges([])
+    } finally { setLoading(false) }
   }
 
-  const fault = nodes.find((n) => n.type === 'Fault')
-  const solutions = nodes.filter((n) => n.type === 'Solution')
-  const vbW = 880
-  const vbH = 500
-  const centerX = vbW / 2
-  const centerY = vbH / 2 - 6
-  const faultR = 52
-  const solR = 44
-  const radius = computeSpokeLayoutRadius(solutions.length, faultR, solR, 72)
-  const labelOffset = 40
+  const svgPoint = (e: React.MouseEvent) => {
+    const svg = svgRef.current
+    if (!svg) return { x: 0, y: 0 }
+    const pt = svg.createSVGPoint()
+    pt.x = e.clientX; pt.y = e.clientY
+    const ctm = svg.getScreenCTM()
+    if (!ctm) return { x: 0, y: 0 }
+    const tp = pt.matrixTransform(ctm.inverse())
+    return { x: tp.x, y: tp.y }
+  }
+
+  const onNodeMouseDown = useCallback((e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    const p = svgPoint(e)
+    const pos = positions[id] ?? { x: CX, y: CY }
+    dragRef.current = { id, ox: pos.x, oy: pos.y, mx: p.x, my: p.y }
+  }, [positions])
+
+  const onSvgMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragRef.current) return
+    const { id, ox, oy, mx, my } = dragRef.current
+    const p = svgPoint(e)
+    setPositions(prev => ({ ...prev, [id]: { x: ox + p.x - mx, y: oy + p.y - my } }))
+  }, [])
+
+  const onSvgMouseUp = useCallback(() => { dragRef.current = null }, [])
 
   return (
     <div className="panel visual-panel">
       <div className="search-row">
         <input
           className="text-input"
-          placeholder="输入故障名称，展示关联子图…"
+          placeholder="输入故障名称，展示多类型关联子图（含告警 / 分类 / 邻近故障）…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && search()}
@@ -370,130 +651,104 @@ function VisualPanel() {
       </div>
 
       {error && <div className="msg-error">{error}</div>}
-      {!fault && !loading && <div className="empty">输入故障名称后点击“生成图谱”</div>}
+      {nodes.length === 0 && !loading && (
+        <div className="empty">输入故障名称后点击「生成图谱」，节点可自由拖动</div>
+      )}
 
-      {fault && (
+      {nodes.length > 0 && (
         <div className="graph-canvas-wrap">
-          <p className="visual-legend-hint">悬停节点或连线可高亮；边标签已外移避免与圆重叠。</p>
           <svg
-            className="graph-canvas"
-            viewBox={`0 0 ${vbW} ${vbH}`}
+            ref={svgRef}
+            className="graph-canvas graph-canvas--draggable"
+            viewBox={`0 0 ${VW} ${VH}`}
             role="img"
             aria-label="故障关联子图"
+            onMouseMove={onSvgMouseMove}
+            onMouseUp={onSvgMouseUp}
+            onMouseLeave={onSvgMouseUp}
           >
             <defs>
-              <linearGradient id="faultGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#6366f1" />
-                <stop offset="100%" stopColor="#4f46e5" />
-              </linearGradient>
-              <linearGradient id="solGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#14b8a6" />
-                <stop offset="100%" stopColor="#0d9488" />
-              </linearGradient>
-              <filter id="nodeGlow" x="-40%" y="-40%" width="180%" height="180%">
-                <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#000" floodOpacity="0.35" />
+              <filter id="nodeGlow2">
+                <feDropShadow dx="0" dy="2" stdDeviation="5" floodColor="#000" floodOpacity="0.4" />
               </filter>
-              <marker
-                id="arrowHasSol"
-                viewBox="0 0 10 10"
-                refX="9"
-                refY="5"
-                markerWidth="7"
-                markerHeight="7"
-                orient="auto-start-reverse"
-              >
-                <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow-head" />
+              <marker id="arrowFwd" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10z" className="edge-arrow-head" />
               </marker>
             </defs>
 
-            <g key={fault.id} className="visual-graph-root">
-              {solutions.map((s, i) => {
-                const angle = (Math.PI * 2 * i) / Math.max(solutions.length, 1)
-                const x = centerX + radius * Math.cos(angle)
-                const y = centerY + radius * Math.sin(angle)
-                const chord = shortenChord(centerX, centerY, x, y, faultR, solR)
-                const mx = (chord.x1 + chord.x2) / 2
-                const my = (chord.y1 + chord.y2) / 2
-                const lx = mx + chord.px * labelOffset
-                const ly = my + chord.py * labelOffset
-                const edge = edges.find((e) => String(e.source) === String(fault.id) && String(e.target) === String(s.id))
-                const rel = formatEdgeRelationLabel(edge?.label ?? '')
-                const hot = hoverSpoke === s.id
-                const tw = Math.min(220, Math.max(56, rel.length * 12 + 16))
-
+            {/* Edges */}
+            <g>
+              {edges.map((e) => {
+                const src = positions[String(e.source)]
+                const tgt = positions[String(e.target)]
+                if (!src || !tgt) return null
+                const rS = NODE_R[nodes.find(n => String(n.id) === String(e.source))?.type ?? 'Fault'] ?? 40
+                const rT = NODE_R[nodes.find(n => String(n.id) === String(e.target))?.type ?? 'Solution'] ?? 36
+                const dx = tgt.x - src.x, dy = tgt.y - src.y
+                const len = Math.hypot(dx, dy) || 1
+                const ux = dx / len, uy = dy / len
+                const x1 = src.x + ux * rS, y1 = src.y + uy * rS
+                const x2 = tgt.x - ux * rT, y2 = tgt.y - uy * rT
+                const lx = (x1 + x2) / 2 + (-uy) * 16
+                const ly = (y1 + y2) / 2 + ux * 16
+                const lbl = fmtEdge(e.label ?? '')
+                const hot = hover === String(e.source) || hover === String(e.target)
                 return (
-                  <g
-                    key={s.id}
-                    className={`visual-spoke ${hot ? 'visual-spoke--hot' : ''}`}
-                    onMouseEnter={() => setHoverSpoke(s.id)}
-                    onMouseLeave={() => setHoverSpoke(null)}
+                  <g key={e.id} className={`visual-spoke ${hot ? 'visual-spoke--hot' : ''}`}>
+                    <line x1={x1} y1={y1} x2={x2} y2={y2} className="edge-hit" />
+                    <line x1={x1} y1={y1} x2={x2} y2={y2}
+                      className="edge-line" markerEnd="url(#arrowFwd)" />
+                    <text x={lx} y={ly} className="edge-label-inline">{lbl}</text>
+                  </g>
+                )
+              })}
+            </g>
+
+            {/* Nodes */}
+            <g>
+              {nodes.map((n) => {
+                const pos = positions[n.id] ?? { x: CX, y: CY }
+                const r   = NODE_R[n.type] ?? 36
+                const cls = NODE_CLASS[n.type] ?? 'fault-node'
+                const hot = hover === n.id
+                const lbl = n.label.length > 14 ? n.label.slice(0, 13) + '…' : n.label
+                return (
+                  <g key={n.id}
+                    className={`visual-node-group ${hot ? 'visual-node-group--hot' : ''}`}
+                    style={{ cursor: 'grab' }}
+                    onMouseEnter={() => setHover(n.id)}
+                    onMouseLeave={() => setHover(null)}
+                    onMouseDown={(e) => onNodeMouseDown(e, n.id)}
                   >
-                    <title>{`${rel} → ${s.label}`}</title>
-                    <line
-                      x1={chord.x1}
-                      y1={chord.y1}
-                      x2={chord.x2}
-                      y2={chord.y2}
-                      className="edge-hit"
-                    />
-                    <line
-                      x1={chord.x1}
-                      y1={chord.y1}
-                      x2={chord.x2}
-                      y2={chord.y2}
-                      className="edge-line"
-                      markerEnd="url(#arrowHasSol)"
-                    />
-                    <g className="edge-label-group" pointerEvents="none">
-                      <rect
-                        x={lx - tw / 2}
-                        y={ly - 12}
-                        width={tw}
-                        height={24}
-                        rx={8}
-                        className="edge-label-bg"
-                      />
-                      <text x={lx} y={ly} className="edge-label">
-                        {rel}
-                      </text>
-                    </g>
-                    <circle cx={x} cy={y} r={solR} className="solution-node" filter="url(#nodeGlow)" />
-                    <text
-                      x={x}
-                      y={y}
-                      className={`node-label ${s.label.length > 16 ? 'node-label--sm' : ''}`}
-                    >
-                      {s.label}
+                    <title>{`[${n.type}] ${n.label}`}</title>
+                    <circle cx={pos.x} cy={pos.y} r={r} className={cls} filter="url(#nodeGlow2)" />
+                    <text x={pos.x} y={pos.y}
+                      className={`node-label ${r < 36 ? 'node-label--xs' : r < 44 ? 'node-label--sm' : ''}`}>
+                      {lbl}
                     </text>
                   </g>
                 )
               })}
-
-              <g
-                className={`visual-fault-hub ${hoverFault ? 'visual-fault-hub--hot' : ''}`}
-                onMouseEnter={() => setHoverFault(true)}
-                onMouseLeave={() => setHoverFault(false)}
-              >
-                <title>{fault.label}</title>
-                <circle cx={centerX} cy={centerY} r={faultR} className="fault-node" filter="url(#nodeGlow)" />
-                <text
-                  x={centerX}
-                  y={centerY}
-                  className={`node-label node-label-main ${fault.label.length > 14 ? 'node-label-main--sm' : ''}`}
-                >
-                  {fault.label}
-                </text>
-              </g>
             </g>
 
-            <g className="visual-legend" pointerEvents="none">
-              <rect x={16} y={vbH - 44} width={268} height={32} rx={8} className="visual-legend-box" />
-              <circle cx={36} cy={vbH - 28} r={8} className="fault-node legend-dot" />
-              <text x={50} y={vbH - 24} className="visual-legend-text">故障（Fault）</text>
-              <circle cx={138} cy={vbH - 28} r={8} className="solution-node legend-dot" />
-              <text x={152} y={vbH - 24} className="visual-legend-text">方案（Solution）</text>
-              <line x1={230} y1={vbH - 28} x2={252} y2={vbH - 28} className="edge-line legend-line" />
-              <text x={258} y={vbH - 24} className="visual-legend-text">关系</text>
+            {/* Legend */}
+            <g pointerEvents="none">
+              {[
+                { cls: 'fault-node',    lbl: '故障' },
+                { cls: 'solution-node', lbl: '方案' },
+                { cls: 'alert-node',    lbl: '告警' },
+                { cls: 'category-node', lbl: '分类' },
+              ].map(({ cls, lbl }, i) => (
+                <g key={cls} transform={`translate(${14 + i * 92}, ${VH - 34})`}>
+                  <circle cx={10} cy={8} r={8} className={`${cls} legend-dot`} />
+                  <text x={24} y={13} className="visual-legend-text">{lbl}</text>
+                </g>
+              ))}
+              <text x={VW - 14} y={VH - 22} className="visual-legend-text"
+                textAnchor="end" style={{ fontSize: '0.68rem', opacity: 0.45 }}>
+                节点可拖动
+              </text>
             </g>
           </svg>
         </div>
@@ -501,6 +756,7 @@ function VisualPanel() {
     </div>
   )
 }
+
 
 function QueryPanel() {
   const [query, setQuery]       = useState('')
@@ -510,9 +766,9 @@ function QueryPanel() {
   const [error, setError]       = useState('')
 
   useEffect(() => {
-    fetch(`${GRAPH_BASE}/graph/faults`)
+    fetch(`${GRAPH_BASE}/graph/faults?page_size=500`)
       .then((r) => r.json())
-      .then((d) => setFaults(d.faults ?? []))
+      .then((d) => setFaults((d.faults ?? []).map((f: string | { name: string }) => typeof f === 'string' ? f : f.name)))
       .catch(() => {})
   }, [])
 

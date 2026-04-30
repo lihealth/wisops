@@ -1,4 +1,4 @@
-"""WisOps Graph API — 平台 V1.7（图谱 Schema V2.0）"""
+"""WisOps Graph API — 平台 V1.9（图谱 Schema V2.0）"""
 import json
 import os
 import re
@@ -8,23 +8,101 @@ from typing import Any, Callable, Dict, List, Optional
 
 import requests
 import vector_search as _vec
-from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 app = FastAPI(
     title="WisOps Graph API",
-    version="1.7.0",
+    version="1.9.0",
     root_path="/graph-api",
     root_path_in_servers=False,
 )
 
 HUGEGRAPH_URL   = os.getenv("HUGEGRAPH_URL",   "http://localhost:8081").rstrip("/")
 HUGEGRAPH_GRAPH = os.getenv("HUGEGRAPH_GRAPH", "hugegraph")
-LLM_API_URL     = os.getenv("LLM_API_URL",     "")          # 可选外部 LLM（兼容 OpenAI Chat API）
+LLM_API_URL     = os.getenv("LLM_API_URL",     "")
 LLM_API_KEY     = os.getenv("LLM_API_KEY",     "")
-# 聊天/抽取所用模型名（DeepSeek 填如 deepseek-chat；OpenAI 填 gpt-4o-mini 等）
 LLM_CHAT_MODEL  = os.getenv("LLM_CHAT_MODEL", "gpt-4o-mini")
+DIFY_DATASET_API_URL = os.getenv("DIFY_DATASET_API_URL", "").rstrip("/")
+DIFY_DATASET_ID = os.getenv("DIFY_DATASET_ID", "")
+DIFY_DATASET_API_KEY = os.getenv("DIFY_DATASET_API_KEY", "")
 REQUEST_TIMEOUT = 10
+
+# ── SEC：API Key 校验 ──────────────────────────────────────────────────────────
+# 设置 GRAPH_API_KEY 环境变量后，所有写操作（POST/PUT/DELETE）需在请求头传入：
+#   X-API-Key: <your-key>
+# 未设置时跳过校验（开发/本地模式），日志会输出警告。
+GRAPH_API_KEY: str = os.getenv("GRAPH_API_KEY", "").strip()
+
+# 不需要 Key 的读路径白名单（GET 请求默认不鉴权，此处仅供扩展）
+_WRITE_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
+# 部分 POST 路径允许匿名（健康检查等），按前缀匹配
+_AUTH_EXEMPT_PREFIXES = (
+    "/graph-api/health",
+    "/graph-api/docs",
+    "/graph-api/openapi",
+    "/graph-api/redoc",
+    "/health",
+    "/docs",
+    "/openapi",
+    "/redoc",
+)
+
+
+@app.middleware("http")
+async def api_key_middleware(request: Request, call_next):
+    if GRAPH_API_KEY and request.method in _WRITE_METHODS:
+        path = request.url.path
+        exempt = any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES)
+        if not exempt:
+            provided = request.headers.get("X-API-Key", "").strip()
+            if provided != GRAPH_API_KEY:
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"detail": "Invalid or missing X-API-Key header"},
+                )
+    response = await call_next(request)
+    return response
+
+
+# ── SEC：写操作审计日志 ────────────────────────────────────────────────────────
+# 格式：{timestamp_ms, method, path, status_code, user_hint, elapsed_ms}
+# 内存存储（重启丢失），最多保留 AUDIT_MAX_ENTRIES 条，超出时滚动丢弃最旧的。
+AUDIT_MAX_ENTRIES: int = int(os.getenv("AUDIT_MAX_ENTRIES", "2000"))
+_audit_log: List[Dict[str, Any]] = []
+
+
+def _audit(method: str, path: str, status_code: int, user_hint: str, elapsed_ms: int) -> None:
+    entry = {
+        "timestamp_ms": int(time.time() * 1000),
+        "method":       method,
+        "path":         path,
+        "status_code":  status_code,
+        "user_hint":    user_hint,
+        "elapsed_ms":   elapsed_ms,
+    }
+    _audit_log.append(entry)
+    if len(_audit_log) > AUDIT_MAX_ENTRIES:
+        del _audit_log[:len(_audit_log) - AUDIT_MAX_ENTRIES]
+
+
+@app.middleware("http")
+async def audit_middleware(request: Request, call_next):
+    """记录所有写操作的入参概要与响应状态。"""
+    if request.method not in _WRITE_METHODS:
+        return await call_next(request)
+    path = request.url.path
+    exempt = any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES)
+    if exempt:
+        return await call_next(request)
+    t0 = time.monotonic()
+    response = await call_next(request)
+    elapsed = int((time.monotonic() - t0) * 1000)
+    user_hint = request.headers.get("X-User", request.headers.get("X-API-Key", "anonymous")[:16])
+    _audit(request.method, path, response.status_code, user_hint, elapsed)
+    return response
+
 
 _ACTIVE_GREMLIN_ENDPOINT: Optional[str] = None
 
@@ -32,6 +110,8 @@ _ACTIVE_GREMLIN_ENDPOINT: Optional[str] = None
 _extract_queue: Dict[str, Dict[str, Any]] = {}
 # 抽取任务状态
 _extract_jobs: Dict[str, Dict[str, Any]] = {}
+# 已审核知识与 Dify 文档关联索引（内存态，重启丢失；后续可迁移 DB）
+_extract_doc_links: List[Dict[str, Any]] = []
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -85,6 +165,10 @@ class IncidentRequest(BaseModel):
 class ExtractSubmitRequest(BaseModel):
     text:        str = Field(..., min_length=10, max_length=50000)
     source_hint: str = Field(default="manual")  # 来源说明（文件名/工单 ID 等）
+
+class ExtractBatchIdsRequest(BaseModel):
+    """批量审核：单次最多 50 条，避免长时间阻塞 HTTP。"""
+    item_ids: List[str] = Field(..., min_length=1, max_length=50)
 
 class RecommendRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=1000)
@@ -198,6 +282,9 @@ def _gremlin_collect_paged(script_for_range: Callable[[int, int], str]) -> List[
 
 
 def _all_fault_names_ordered() -> List[str]:
+    # 启动时 HugeGraph 若未就绪，startup 里 ensure_schema_v2 可能被静默跳过；
+    # 首次拉取 Fault 名单前再幂等执行一次，避免 Undefined vertex label: 'Fault'
+    ensure_schema_v2()
     rows = _gremlin_collect_paged(
         lambda lo, hi: (
             f"g.V().hasLabel('Fault').order().by('name').range({lo}, {hi}).values('name')"
@@ -244,6 +331,7 @@ schema.propertyKey('team').asText().ifNotExist().create()
 schema.propertyKey('expertise').asText().ifNotExist().create()
 schema.propertyKey('code').asText().ifNotExist().create()
 schema.propertyKey('method').asText().ifNotExist().create()
+schema.propertyKey('rule_name').asText().ifNotExist().create()
 schema.propertyKey('role').asText().ifNotExist().create()
 schema.propertyKey('adopted_at').asLong().ifNotExist().create()
 
@@ -294,7 +382,9 @@ if (!existingEdgeLabels.contains('HAS_ALERT')) {
   schema.edgeLabel('HAS_ALERT').sourceLabel('Asset').targetLabel('Alert').properties('created_at').nullableKeys('created_at').create()
 }
 if (!existingEdgeLabels.contains('TRIGGERS')) {
-  schema.edgeLabel('TRIGGERS').sourceLabel('Alert').targetLabel('Fault').properties('created_at').nullableKeys('created_at').create()
+  schema.edgeLabel('TRIGGERS').sourceLabel('Alert').targetLabel('Fault').properties('created_at','confidence','method','rule_name').nullableKeys('created_at','confidence','method','rule_name').create()
+} else {
+  schema.edgeLabel('TRIGGERS').properties('confidence','method','rule_name').nullableKeys('confidence','method','rule_name').append()
 }
 if (!existingEdgeLabels.contains('INVOLVES')) {
   schema.edgeLabel('INVOLVES').sourceLabel('Incident').targetLabel('Asset').properties('created_at').nullableKeys('created_at').create()
@@ -352,6 +442,31 @@ def admin_schema_init() -> Dict[str, Any]:
     """手动触发 V2 Schema 初始化（暴露详细错误）"""
     ensure_schema_v2()
     return {"status": "ok"}
+
+
+# ── SEC：审计日志查询 ──────────────────────────────────────────────────────────
+
+@app.get("/admin/audit-log")
+def get_audit_log(
+    limit:   int = Query(100, ge=1, le=1000),
+    method:  str = Query("", description="过滤 HTTP 方法，如 POST"),
+    path_kw: str = Query("", description="路径关键词过滤（子串匹配）"),
+) -> Dict[str, Any]:
+    """
+    返回最近写操作审计记录（内存态，重启丢失）。
+    按时间倒序，limit 最多 1000 条。
+    """
+    rows = list(reversed(_audit_log))
+    if method.strip():
+        rows = [r for r in rows if r["method"].upper() == method.strip().upper()]
+    if path_kw.strip():
+        kw = path_kw.strip().lower()
+        rows = [r for r in rows if kw in r["path"].lower()]
+    return {
+        "total":   len(_audit_log),
+        "returned": min(len(rows), limit),
+        "items":   rows[:limit],
+    }
 
 
 def _upsert_category(code: str, name: str, domain: str) -> str:
@@ -435,7 +550,26 @@ def _score_alert_fault_match(content: str, fault_name: str) -> float:
     if not content or not fault_name:
         return 0.0
     c = content.lower()
+    # 告警文本中提取可判别 token，过滤通用词，降低“全量误匹配”
+    stop_words = {
+        "service", "trigger", "anomalies", "anomaly", "error", "warning",
+        "host", "node", "system", "application", "cluster", "parallel",
+        "fast", "sort", "normal", "metric", "event",
+    }
+    content_tokens = {
+        t for t in re.findall(r"[a-z_]{4,}", c)
+        if t not in stop_words
+    }
     base = re.sub(r"[（(][^)）]*[)）]", "", fault_name).strip().lower()
+    fault_tokens = {
+        t for t in re.findall(r"[a-z_]{4,}", fault_name.lower())
+        if t not in stop_words
+    }
+
+    # 若几乎没有 token 交集，直接判不匹配（避免把所有 alert 都连到任意 fault）
+    if content_tokens and fault_tokens and not (content_tokens & fault_tokens):
+        return 0.0
+
     if base and len(base) >= 3 and base in c:
         return 1.0
     if fault_name.lower() in c:
@@ -451,15 +585,156 @@ def _score_alert_fault_match(content: str, fault_name: str) -> float:
     return 0.0
 
 
-@app.post("/admin/triggers/sync")
-def admin_triggers_sync(top_k_per_alert: int = 2) -> Dict[str, Any]:
+_ALERT_FAULT_RULES = [
+    {
+        # GAIA: memory_anomalies + dbservice
+        "pattern": re.compile(r"\[memory_anomalies\]|memory_anomalies", re.I),
+        "content_keywords": ["dbservice", "mysql", "database", "db "],
+        "fault_keywords": ["mysql", "database", "db", "connection"],
+        "score": 0.95,
+        "name": "gaia-memory-db",
+    },
+    {
+        # GAIA: memory_anomalies + redisservice
+        "pattern": re.compile(r"\[memory_anomalies\]|memory_anomalies", re.I),
+        "content_keywords": ["redisservice", "redis"],
+        "fault_keywords": ["redis", "replication", "cache"],
+        "score": 0.95,
+        "name": "gaia-memory-redis",
+    },
+    {
+        # GAIA: memory_anomalies + webservice
+        "pattern": re.compile(r"\[memory_anomalies\]|memory_anomalies", re.I),
+        "content_keywords": ["webservice", "nginx", "apache", "http"],
+        "fault_keywords": ["nginx", "apache", "web", "http"],
+        "score": 0.94,
+        "name": "gaia-memory-web",
+    },
+    {
+        # GAIA: memory_anomalies + logservice
+        "pattern": re.compile(r"\[memory_anomalies\]|memory_anomalies", re.I),
+        "content_keywords": ["logservice", "elk", "elasticsearch"],
+        "fault_keywords": ["elasticsearch", "log", "queue", "rejected"],
+        "score": 0.94,
+        "name": "gaia-memory-log",
+    },
+    {
+        # GAIA: memory_anomalies + mobservice
+        "pattern": re.compile(r"\[memory_anomalies\]|memory_anomalies", re.I),
+        "content_keywords": ["mobservice", "k8s", "kubernetes"],
+        "fault_keywords": ["k8s", "kubernetes", "memorypressure", "insufficient cpu/memory"],
+        "score": 0.95,
+        "name": "gaia-memory-mob",
+    },
+    {
+        # GAIA 数据中主告警类型之一：cpu_anomalies + dbservice
+        "pattern": re.compile(r"\[cpu_anomalies\]|cpu_anomalies", re.I),
+        "content_keywords": ["dbservice", "mysql", "database", "db "],
+        "fault_keywords": ["mysql", "database", "cpu", "high cpu"],
+        "score": 0.93,
+        "name": "gaia-cpu-db",
+    },
+    {
+        # GAIA: cpu_anomalies + redisservice
+        "pattern": re.compile(r"\[cpu_anomalies\]|cpu_anomalies", re.I),
+        "content_keywords": ["redisservice", "redis"],
+        "fault_keywords": ["redis", "cpu", "cache"],
+        "score": 0.93,
+        "name": "gaia-cpu-redis",
+    },
+    {
+        # GAIA: cpu_anomalies + webservice
+        "pattern": re.compile(r"\[cpu_anomalies\]|cpu_anomalies", re.I),
+        "content_keywords": ["webservice", "nginx", "apache", "http"],
+        "fault_keywords": ["nginx", "apache", "cpu", "web"],
+        "score": 0.92,
+        "name": "gaia-cpu-web",
+    },
+    {
+        # GAIA: cpu_anomalies + mobservice / k8s
+        "pattern": re.compile(r"\[cpu_anomalies\]|cpu_anomalies", re.I),
+        "content_keywords": ["mobservice", "k8s", "kubernetes"],
+        "fault_keywords": ["k8s", "kubernetes", "cpu", "insufficient cpu/memory"],
+        "score": 0.94,
+        "name": "gaia-cpu-mob",
+    },
+    {
+        "pattern": re.compile(r"authentication failure|invalid user|pam_unix", re.I),
+        "fault_keywords": ["ssh", "暴力", "破解", "authentication", "invalid user"],
+        "score": 0.95,
+        "name": "ssh-auth-failure",
+    },
+    {
+        "pattern": re.compile(r"send worker leaving thread|connection broken for id", re.I),
+        "fault_keywords": ["zookeeper", "peer", "连接中断", "sendworker"],
+        "score": 0.9,
+        "name": "zookeeper-peer-broken",
+    },
+    {
+        "pattern": re.compile(r"mod_jk child workerenv in error state", re.I),
+        "fault_keywords": ["apache", "mod_jk", "worker", "error state"],
+        "score": 0.92,
+        "name": "apache-modjk-error",
+    },
+    {
+        "pattern": re.compile(r"got exception while serving blk_", re.I),
+        "fault_keywords": ["hdfs", "datanode", "block", "blk_", "传输异常"],
+        "score": 0.88,
+        "name": "hdfs-block-serving-exception",
+    },
+]
+
+
+def _rule_score_alert_fault_match(content: str, fault_name: str) -> tuple[float, str]:
     """
-    按告警文本与故障名模糊匹配，批量补 TRIGGERS 边（幂等，已存在则跳过）。
-    top_k_per_alert：每条告警最多关联几条故障（query，默认 2，最大 5）。
+    规则优先匹配：返回 (score, rule_name)。
+    若未命中，返回 (0.0, "")。
+    """
+    if not content or not fault_name:
+        return 0.0, ""
+    c = content.lower()
+    f = fault_name.lower()
+    best_score = 0.0
+    best_rule = ""
+    for rule in _ALERT_FAULT_RULES:
+        if not rule["pattern"].search(c):
+            continue
+        # 若配置了 content_keywords，要求告警内容至少命中一个关键词
+        content_keys = rule.get("content_keywords") or []
+        if content_keys and not any(str(k).lower() in c for k in content_keys):
+            continue
+        # 规则命中后，再要求故障名至少含一个关键词，降低误匹配
+        if not any(k in f for k in rule["fault_keywords"]):
+            continue
+        sc = float(rule["score"])
+        if sc > best_score:
+            best_score = sc
+            best_rule = str(rule["name"])
+    return best_score, best_rule
+
+
+@app.post("/admin/triggers/sync")
+def admin_triggers_sync(
+    top_k_per_alert: int = 2,
+    min_confidence: float = 0.72,
+    dry_run: bool = False,
+    include_candidates: bool = False,
+    candidate_limit: int = 5000,
+) -> Dict[str, Any]:
+    """
+    按告警文本与故障名匹配，批量补 TRIGGERS 边（幂等，已存在则跳过）。
+    - 规则匹配优先（可追溯 rule_name）
+    - 规则未命中时使用模糊打分兜底
+    - dry_run=true 只统计不写边
+    top_k_per_alert：每条告警最多关联几条故障（默认 2，最大 5）。
+    min_confidence：最低置信阈值（0~1）。
+    include_candidates：返回候选明细（用于审计导出）。
+    candidate_limit：候选明细最大返回条数（默认 5000）。
     """
     ensure_schema_v2()
     now = int(time.time() * 1000)
     top_k = max(1, min(int(top_k_per_alert), 5))
+    min_conf = max(0.0, min(float(min_confidence), 1.0))
 
     faults_raw = _gremlin_collect_paged(
         lambda lo, hi: (
@@ -486,27 +761,105 @@ def admin_triggers_sync(top_k_per_alert: int = 2) -> Dict[str, Any]:
 
     created = 0
     skipped = 0
+    matched_alerts = 0
+    candidate_edges = 0
+    rule_hits = 0
+    fuzzy_hits = 0
+    samples: List[Dict[str, Any]] = []
+    candidate_rows: List[Dict[str, Any]] = []
+    max_candidates = max(1, min(int(candidate_limit), 20000))
+
     for al in alerts:
         content = al["c"]
         scored: List[tuple] = []
         for f in faults:
-            sc = _score_alert_fault_match(content, f["name"])
-            if sc >= 0.72:
-                scored.append((sc, f["vid"]))
+            rule_sc, rule_name = _rule_score_alert_fault_match(content, f["name"])
+            if rule_sc >= min_conf:
+                scored.append((rule_sc, f["vid"], "rule", rule_name, f["name"]))
+                continue
+            fuzzy_sc = _score_alert_fault_match(content, f["name"])
+            if fuzzy_sc >= min_conf:
+                scored.append((fuzzy_sc, f["vid"], "fuzzy", "", f["name"]))
         scored.sort(key=lambda x: -x[0])
-        for _, fvid in scored[:top_k]:
+        chosen = scored[:top_k]
+        if chosen:
+            matched_alerts += 1
+            candidate_edges += len(chosen)
+            for _, _, method, _, _ in chosen:
+                if method == "rule":
+                    rule_hits += 1
+                else:
+                    fuzzy_hits += 1
+        for sc, fvid, method, rule_name, fault_name in chosen:
+            if len(samples) < 10:
+                samples.append(
+                    {
+                        "alert_id": al["vid"],
+                        "fault_id": fvid,
+                        "fault_name": fault_name,
+                        "confidence": round(float(sc), 3),
+                        "method": method,
+                        "rule_name": rule_name,
+                    }
+                )
             chk = execute_gremlin(
                 "g.V(aid).outE('TRIGGERS').where(__.inV().hasId(fid)).count()",
                 {"aid": al["vid"], "fid": fvid},
             )
-            if (_extract_data(chk) or [0])[0] > 0:
+            exists = (_extract_data(chk) or [0])[0] > 0
+            if include_candidates and len(candidate_rows) < max_candidates:
+                candidate_rows.append(
+                    {
+                        "alert_id": al["vid"],
+                        "fault_id": fvid,
+                        "fault_name": fault_name,
+                        "confidence": round(float(sc), 3),
+                        "method": method,
+                        "rule_name": rule_name,
+                        "exists": bool(exists),
+                    }
+                )
+            if exists:
+                # 已有关联边时补齐/刷新可追溯属性，便于审计
+                if not dry_run:
+                    try:
+                        execute_gremlin(
+                            "g.V(aid).outE('TRIGGERS').where(__.inV().hasId(fid))"
+                            ".property('confidence', conf)"
+                            ".property('method', mtd)"
+                            ".property('rule_name', rname)"
+                            ".iterate()",
+                            {
+                                "aid": al["vid"],
+                                "fid": fvid,
+                                "conf": float(sc),
+                                "mtd": method,
+                                "rname": rule_name or "",
+                            },
+                        )
+                    except HTTPException:
+                        pass
                 skipped += 1
+                continue
+            if dry_run:
                 continue
             try:
                 execute_gremlin(
                     "def av = g.V(aid).next(); def fv = g.V(fid).next(); "
-                    "g.addE('TRIGGERS').from(av).to(fv).property('created_at', ts).iterate()",
-                    {"aid": al["vid"], "fid": fvid, "ts": now},
+                    "g.addE('TRIGGERS').from(av).to(fv)"
+                    ".property('created_at', ts)"
+                    ".property('confidence', conf)"
+                    ".property('method', mtd)"
+                    ".property('rule_name', rname)"
+                    ".iterate()",
+                    {
+                        "aid": al["vid"],
+                        "fid": fvid,
+                        "ts": now,
+                        "conf": float(sc),
+                        "mtd": method,
+                        "rname": rule_name or "",
+                    },
                 )
                 created += 1
             except HTTPException:
@@ -516,8 +869,19 @@ def admin_triggers_sync(top_k_per_alert: int = 2) -> Dict[str, Any]:
         "status":         "ok",
         "alerts_scanned": len(alerts),
         "faults_indexed": len(faults),
+        "matched_alerts": matched_alerts,
+        "candidate_edges": candidate_edges,
+        "rule_hits": rule_hits,
+        "fuzzy_hits": fuzzy_hits,
         "triggers_created": created,
         "triggers_skip_exists": skipped,
+        "min_confidence": min_conf,
+        "top_k_per_alert": top_k,
+        "dry_run": dry_run,
+        "samples": samples,
+        "include_candidates": include_candidates,
+        "candidate_limit": max_candidates,
+        "candidates": candidate_rows if include_candidates else [],
     }
 
 
@@ -620,9 +984,22 @@ def add_relation(payload: AddRelationRequest, background_tasks: BackgroundTasks)
 
 
 @app.get("/graph/faults")
-def list_faults() -> Dict[str, Any]:
+def list_faults(page_size: int = Query(1000, ge=1, le=2000)) -> Dict[str, Any]:
     faults = _all_fault_names_ordered()
-    return {"faults": faults, "count": len(faults)}
+    # page_size 供前端自动补全限制返回量；默认全量
+    limited = faults[:page_size]
+    return {"faults": [{"name": n} for n in limited], "count": len(limited)}
+
+
+@app.get("/graph/solutions")
+def list_solutions(page_size: int = Query(200, ge=1, le=2000)) -> Dict[str, Any]:
+    """轻量方案列表，供前端自动补全（仅返回 name）。"""
+    script = """
+g.V().hasLabel('Solution').order().by('name').limit(limit).values('name').fold()
+"""
+    rows = _extract_data(execute_gremlin(script, {"limit": page_size}))
+    names: List[str] = rows[0] if rows and isinstance(rows[0], list) else []
+    return {"solutions": [{"name": n} for n in names], "count": len(names)}
 
 
 _FAULT_DETAIL_PROJ = """
@@ -692,68 +1069,46 @@ def list_faults_detail(
 ) -> Dict[str, Any]:
     """
     分页返回 Fault 顶点属性（供图谱管理页表格）。
-    q 非空时在内存中按名称子串过滤（与全量故障名列表比对，适合万级以内）。
+    total 通过 _all_fault_names_ordered() 的列表长度计算，
+    避免 HugeGraph .count() 偶发 refCnt 错误导致 total=0、翻页失效。
     """
     page_size = min(page_size, 200)
     counts = _safe_vertex_edge_counts()
-    graph_total = counts["fault_vertex_count"]
     solution_total = counts["solution_vertex_count"]
     has_solution_edges = counts["has_solution_edge_count"]
 
+    # 全量名单（分页 range 查询，不依赖 .count()）
+    all_names = _all_fault_names_ordered()
     needle = (q or "").strip().lower()
-    if needle:
-        all_names = _all_fault_names_ordered()
-        filtered = [n for n in all_names if needle in n.lower()]
-        total = len(filtered)
-        offset = (page - 1) * page_size
-        slice_names = filtered[offset : offset + page_size]
-        if not slice_names:
-            return {
-                "items":       [],
-                "total":       total,
-                "graph_total": graph_total,
-                "solution_total": solution_total,
-                "has_solution_edges": has_solution_edges,
-                "page":        page,
-                "page_size":   page_size,
-                "q":           q.strip(),
-            }
-        script = (
-            "g.V().hasLabel('Fault').has('name', within(names))"
-            + _FAULT_DETAIL_PROJ
-        )
-        rows = _extract_data(execute_gremlin(script, {"names": slice_names}))
-        # within 结果顺序不定，按 slice_names 排序
-        by_name = {str(r.get("name")): r for r in _normalize_fault_detail_rows(rows)}
-        items = [by_name[n] for n in slice_names if n in by_name]
-        return {
-            "items":       items,
-            "total":       total,
-            "graph_total": graph_total,
-            "solution_total": solution_total,
-            "has_solution_edges": has_solution_edges,
-            "page":        page,
-            "page_size":   page_size,
-            "q":           q.strip(),
-        }
+    filtered = [n for n in all_names if needle in n.lower()] if needle else all_names
 
+    total = len(filtered)
+    graph_total = len(all_names)     # 无筛选时等于 total；筛选时保留原始总数
     offset = (page - 1) * page_size
+    slice_names = filtered[offset : offset + page_size]
+
+    base_resp: Dict[str, Any] = {
+        "total":             total,
+        "graph_total":       graph_total,
+        "solution_total":    solution_total,
+        "has_solution_edges": has_solution_edges,
+        "page":              page,
+        "page_size":         page_size,
+        "q":                 q.strip(),
+    }
+
+    if not slice_names:
+        return {"items": [], **base_resp}
+
     script = (
-        f"g.V().hasLabel('Fault').order().by('name').range({offset}, {offset + page_size})"
+        "g.V().hasLabel('Fault').has('name', within(names))"
         + _FAULT_DETAIL_PROJ
     )
-    rows = _extract_data(execute_gremlin(script))
-    items = _normalize_fault_detail_rows(rows)
-    return {
-        "items":       items,
-        "total":       graph_total,
-        "graph_total": graph_total,
-        "solution_total": solution_total,
-        "has_solution_edges": has_solution_edges,
-        "page":        page,
-        "page_size":   page_size,
-        "q":           "",
-    }
+    rows = _extract_data(execute_gremlin(script, {"names": slice_names}))
+    # within 结果顺序不定，按 slice_names 排序
+    by_name = {str(r.get("name")): r for r in _normalize_fault_detail_rows(rows)}
+    items = [by_name[n] for n in slice_names if n in by_name]
+    return {"items": items, **base_resp}
 
 
 @app.get("/graph/query")
@@ -775,26 +1130,163 @@ g.V().hasLabel('Fault').has('name', fault_name).
 
 
 @app.get("/graph/visualize")
-def visualize_graph(fault_name: str) -> Dict[str, Any]:
+def visualize_graph(
+    fault_name: str,
+    max_alerts: int = Query(8, ge=0, le=30),
+    max_neighbors: int = Query(5, ge=0, le=20),
+) -> Dict[str, Any]:
+    """
+    返回以某故障为中心的子图，包含：
+    - Fault 本身
+    - 关联 Solution（HAS_SOLUTION）
+    - 触发该 Fault 的 Alert（TRIGGERS，最多 max_alerts 条）
+    - 同 Category 的邻近 Fault（最多 max_neighbors 条，排除自身）
+    """
     if not fault_name.strip():
         raise HTTPException(status_code=400, detail="fault_name cannot be empty")
-    nodes_script = """
+
+    nodes: List[Dict] = []
+    edges: List[Dict] = []
+    seen_node_ids: set = set()
+    seen_edge_ids: set = set()
+
+    def add_node(n: Dict) -> None:
+        nid = str(n.get("id", ""))
+        if nid and nid not in seen_node_ids:
+            seen_node_ids.add(nid)
+            nodes.append(n)
+
+    def add_edge(e: Dict) -> None:
+        eid = str(e.get("id", ""))
+        if eid and eid not in seen_edge_ids:
+            seen_edge_ids.add(eid)
+            edges.append(e)
+
+    # ── 1. Fault + Solutions ──────────────────────────────────────────────────
+    ns = _extract_data(execute_gremlin("""
 g.V().hasLabel('Fault').has('name', fault_name).as('f').
   union(
     select('f').project('id','label','type').by(id()).by(values('name')).by(constant('Fault')),
     out('HAS_SOLUTION').project('id','label','type').by(id()).by(values('name')).by(constant('Solution'))
   )
-"""
-    edges_script = """
+""", {"fault_name": fault_name}))
+    for n in ns:
+        add_node(n)
+
+    es = _extract_data(execute_gremlin("""
 g.V().hasLabel('Fault').has('name', fault_name).
   outE('HAS_SOLUTION').
   project('id','source','target','label').
     by(id()).by(outV().id()).by(inV().id()).by(label())
+""", {"fault_name": fault_name}))
+    for e in es:
+        add_edge(e)
+
+    # ── 2. Alert → TRIGGERS → Fault ──────────────────────────────────────────
+    if max_alerts > 0:
+        try:
+            alert_nodes = _extract_data(execute_gremlin("""
+g.V().hasLabel('Fault').has('name', fault_name).
+  in('TRIGGERS').hasLabel('Alert').
+  limit(limit_n).
+  project('id','label','type').by(id()).by(coalesce(values('alert_id'), values('name'), constant('Alert'))).by(constant('Alert'))
+""", {"fault_name": fault_name, "limit_n": max_alerts}))
+            for n in alert_nodes:
+                add_node(n)
+
+            alert_edges = _extract_data(execute_gremlin("""
+g.V().hasLabel('Fault').has('name', fault_name).
+  inE('TRIGGERS').where(outV().hasLabel('Alert')).
+  limit(limit_n).
+  project('id','source','target','label').
+    by(id()).by(outV().id()).by(inV().id()).by(label())
+""", {"fault_name": fault_name, "limit_n": max_alerts}))
+            for e in alert_edges:
+                add_edge(e)
+        except Exception:
+            pass  # Alert 数据可选，查询失败不影响主图
+
+    # ── 3. 同 Category 邻近 Fault ────────────────────────────────────────────
+    if max_neighbors > 0:
+        try:
+            nbr_nodes = _extract_data(execute_gremlin("""
+g.V().hasLabel('Fault').has('name', fault_name).
+  out('CLASSIFIED_AS').hasLabel('Category').
+  in('CLASSIFIED_AS').hasLabel('Fault').
+  where(values('name').is(neq(fault_name))).
+  limit(limit_n).
+  project('id','label','type').by(id()).by(values('name')).by(constant('Fault'))
+""", {"fault_name": fault_name, "limit_n": max_neighbors}))
+            for n in nbr_nodes:
+                add_node(n)
+
+            # Category 节点本身
+            cat_nodes = _extract_data(execute_gremlin("""
+g.V().hasLabel('Fault').has('name', fault_name).
+  out('CLASSIFIED_AS').hasLabel('Category').
+  project('id','label','type').by(id()).by(values('name')).by(constant('Category'))
+""", {"fault_name": fault_name}))
+            for n in cat_nodes:
+                add_node(n)
+
+            # 主 Fault → Category 边
+            cat_edges = _extract_data(execute_gremlin("""
+g.V().hasLabel('Fault').has('name', fault_name).
+  outE('CLASSIFIED_AS').where(inV().hasLabel('Category')).
+  project('id','source','target','label').
+    by(id()).by(outV().id()).by(inV().id()).by(label())
+""", {"fault_name": fault_name}))
+            for e in cat_edges:
+                add_edge(e)
+
+            # 邻近 Fault → Category 边
+            nbr_cat_edges = _extract_data(execute_gremlin("""
+g.V().hasLabel('Fault').has('name', fault_name).
+  out('CLASSIFIED_AS').hasLabel('Category').as('cat').
+  in('CLASSIFIED_AS').hasLabel('Fault').
+  where(values('name').is(neq(fault_name))).
+  limit(limit_n).
+  outE('CLASSIFIED_AS').where(inV().as('cat')).
+  project('id','source','target','label').
+    by(id()).by(outV().id()).by(inV().id()).by(label())
+""", {"fault_name": fault_name, "limit_n": max_neighbors}))
+            for e in nbr_cat_edges:
+                add_edge(e)
+        except Exception:
+            pass
+
+    return {
+        "fault_name": fault_name,
+        "nodes": nodes,
+        "edges": edges,
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+    }
+
+
+@app.get("/graph/document-trace")
+def graph_document_trace(document_id: str) -> Dict[str, Any]:
+    """
+    按 Dify document_id 反查图谱映射（Solution -> DOCUMENTED_IN -> SOP）。
+    返回关联的 solution/fault，便于前端做双向追溯。
+    """
+    doc = str(document_id or "").strip()
+    if not doc:
+        raise HTTPException(status_code=400, detail="document_id cannot be empty")
+
+    doc_vertex_name = f"dify-doc:{doc}"
+    script = """
+g.V().hasLabel('SOP').has('name', doc_name).as('d').
+  inE('DOCUMENTED_IN').as('de').outV().hasLabel('Solution').as('s').
+  project('document_id','document_vertex','solution_name','fault_names','chunk_ref').
+    by(constant(doc_id)).
+    by(select('d').values('name')).
+    by(select('s').values('name')).
+    by(select('s').in('HAS_SOLUTION').hasLabel('Fault').values('name').dedup().fold()).
+    by(select('de').coalesce(values('chunk_ref'), constant('')))
 """
-    nodes = _extract_data(execute_gremlin(nodes_script, {"fault_name": fault_name}))
-    edges = _extract_data(execute_gremlin(edges_script, {"fault_name": fault_name}))
-    return {"fault_name": fault_name, "nodes": nodes, "edges": edges,
-            "node_count": len(nodes), "edge_count": len(edges)}
+    rows = _extract_data(execute_gremlin(script, {"doc_name": doc_vertex_name, "doc_id": doc}))
+    return {"document_id": doc, "items": rows, "count": len(rows)}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1085,22 +1577,58 @@ g.V().hasLabel('Asset').has('asset_id', aid).fold().
 
 
 @app.get("/assets")
-def list_assets(page: int = 1, page_size: int = 20) -> Dict[str, Any]:
+def list_assets(
+    page: int = 1,
+    page_size: int = 20,
+    q: str = Query("", max_length=200),
+) -> Dict[str, Any]:
+    """
+    资产分页列表。若传入 q（子串，忽略大小写），在 asset_id / name / ip 上过滤；
+    此时先拉全量 Asset 再内存分页（资产规模通常远小于 Fault，可接受）。
+    """
+    page = max(1, page)
+    page_size = min(max(1, page_size), 200)
+    needle = (q or "").strip().lower()
+
+    proj = (
+        "project('asset_id','name','asset_type','ip','env','data_source')."
+        "by(values('asset_id')).by(coalesce(values('name'), constant('')))."
+        "by(coalesce(values('asset_type'), constant('server')))."
+        "by(coalesce(values('ip'), constant('')))."
+        "by(coalesce(values('env'), constant('prod')))."
+        "by(coalesce(values('data_source'), constant('manual')))"
+    )
+
+    if needle:
+        rows = _gremlin_collect_paged(
+            lambda lo, hi: (
+                f"g.V().hasLabel('Asset').order().by('asset_id').range({lo}, {hi}).{proj.strip()}"
+            ),
+        )
+        filtered: List[Dict[str, Any]] = []
+        for a in rows or []:
+            if not isinstance(a, dict):
+                continue
+            aid = str(a.get("asset_id", "") or "").lower()
+            aname = str(a.get("name", "") or "").lower()
+            aip = str(a.get("ip", "") or "").lower()
+            if needle in aid or needle in aname or needle in aip:
+                filtered.append(a)
+        total = len(filtered)
+        offset = (page - 1) * page_size
+        slice_rows = filtered[offset : offset + page_size]
+        return {"assets": slice_rows, "page": page, "page_size": page_size, "total": total, "q": q.strip()}
+
     offset = (page - 1) * page_size
-    script = """
-g.V().hasLabel('Asset').range(offset, offset + limit).
-  project('asset_id','name','asset_type','ip','env','data_source').
-    by(values('asset_id')).by(coalesce(values('name'), constant(''))).
-    by(coalesce(values('asset_type'), constant('server'))).
-    by(coalesce(values('ip'), constant(''))).
-    by(coalesce(values('env'), constant('prod'))).
-    by(coalesce(values('data_source'), constant('manual')))
-"""
+    script = (
+        "g.V().hasLabel('Asset').order().by('asset_id').range(offset, offset + limit)."
+        + proj.strip()
+    )
     result = execute_gremlin(script, {"offset": offset, "limit": page_size})
     assets = _extract_data(result)
     total_result = execute_gremlin("g.V().hasLabel('Asset').count()")
-    total = (_extract_data(total_result) or [0])[0]
-    return {"assets": assets, "page": page, "page_size": page_size, "total": total}
+    total = int((_extract_data(total_result) or [0])[0])
+    return {"assets": assets, "page": page, "page_size": page_size, "total": total, "q": ""}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1159,7 +1687,7 @@ g.V().hasLabel('Asset').has('asset_id', asset_id).
         result = execute_gremlin(script, {"asset_id": asset_id, "offset": offset, "limit": page_size})
     else:
         script = """
-g.V().hasLabel('Alert').order().by('occurred_at', decr).range(offset, offset + limit).
+g.V().hasLabel('Alert').order().by('occurred_at', Order.desc).range(offset, offset + limit).
   project('alert_id','content','level','source','occurred_at').
     by(values('alert_id')).by(values('content')).
     by(values('level')).by(values('source')).
@@ -1168,6 +1696,72 @@ g.V().hasLabel('Alert').order().by('occurred_at', decr).range(offset, offset + l
         result = execute_gremlin(script, {"offset": offset, "limit": page_size})
     alerts = _extract_data(result)
     return {"alerts": alerts, "page": page, "page_size": page_size}
+
+
+@app.get("/admin/triggers/audit")
+def admin_triggers_audit(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    method: str = Query("", max_length=20),
+    rule_name: str = Query("", max_length=200),
+    min_confidence: float = Query(0.0, ge=0.0, le=1.0),
+) -> Dict[str, Any]:
+    """
+    分页返回 TRIGGERS 审计明细（Alert -> Fault）。
+    支持 method/rule_name/min_confidence 过滤，供前端审计页展示。
+    """
+    rows = _gremlin_collect_paged(
+        lambda lo, hi: (
+            "g.E().hasLabel('TRIGGERS').order().by('created_at')"
+            f".range({lo}, {hi})"
+            ".project('edge_id','alert_id','fault_name','confidence','method','rule_name','created_at')"
+            ".by(id())"
+            ".by(outV().values('alert_id'))"
+            ".by(inV().values('name'))"
+            ".by(coalesce(values('confidence'), constant(0.0)))"
+            ".by(coalesce(values('method'), constant('')))"
+            ".by(coalesce(values('rule_name'), constant('')))"
+            ".by(coalesce(values('created_at'), constant(0)))"
+        )
+    )
+
+    method_filter = (method or "").strip().lower()
+    rule_filter = (rule_name or "").strip().lower()
+    min_conf = float(min_confidence)
+
+    normalized: List[Dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        item = {
+            "edge_id": str(row.get("edge_id", "")),
+            "alert_id": str(row.get("alert_id", "")),
+            "fault_name": str(row.get("fault_name", "")),
+            "confidence": float(row.get("confidence", 0.0) or 0.0),
+            "method": str(row.get("method", "") or ""),
+            "rule_name": str(row.get("rule_name", "") or ""),
+            "created_at": int(row.get("created_at", 0) or 0),
+        }
+        if method_filter and item["method"].lower() != method_filter:
+            continue
+        if rule_filter and rule_filter not in item["rule_name"].lower():
+            continue
+        if item["confidence"] < min_conf:
+            continue
+        normalized.append(item)
+
+    total = len(normalized)
+    offset = (page - 1) * page_size
+    items = normalized[offset : offset + page_size]
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "method": method_filter,
+        "rule_name": rule_name.strip(),
+        "min_confidence": min_conf,
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1255,11 +1849,63 @@ if (!a.isEmpty() && !g.V(inc).out('INVOLVES').hasLabel('Asset').has('asset_id', 
         pass
 
 
+@app.get("/incidents/{incident_id}")
+def get_incident(incident_id: str) -> Dict[str, Any]:
+    """工单详情（含关联 Fault / Solution / Asset 边）。"""
+    base_script = """
+g.V().hasLabel('Incident').has('incident_id', incident_id).
+  project('incident_id','title','status','mttr_minutes','created_at','data_source').
+    by(values('incident_id')).by(values('title')).
+    by(coalesce(values('status'), constant('closed'))).
+    by(coalesce(values('mttr_minutes'), constant(0))).
+    by(coalesce(values('created_at'), constant(0))).
+    by(coalesce(values('data_source'), constant('manual')))
+"""
+    rows = _extract_data(execute_gremlin(base_script, {"incident_id": incident_id}))
+    if not rows:
+        raise HTTPException(status_code=404, detail="incident not found")
+    detail = rows[0]
+
+    # 关联 Fault（CAUSED_BY）
+    fault_script = """
+g.V().hasLabel('Incident').has('incident_id', incident_id).
+  out('CAUSED_BY').hasLabel('Fault').values('name').fold()
+"""
+    faults = _extract_data(execute_gremlin(fault_script, {"incident_id": incident_id}))
+    detail["faults"] = faults[0] if faults else []
+
+    # 关联 Solution（RESOLVED_BY）
+    sol_script = """
+g.V().hasLabel('Incident').has('incident_id', incident_id).
+  out('RESOLVED_BY').hasLabel('Solution').
+  project('name','description').
+    by(values('name')).
+    by(coalesce(values('description'), constant(''))).fold()
+"""
+    sols = _extract_data(execute_gremlin(sol_script, {"incident_id": incident_id}))
+    detail["solutions"] = sols[0] if sols else []
+
+    # 关联 Asset（INVOLVES）
+    asset_script = """
+g.V().hasLabel('Incident').has('incident_id', incident_id).
+  out('INVOLVES').hasLabel('Asset').
+  project('asset_id','name','asset_type','ip').
+    by(values('asset_id')).
+    by(coalesce(values('name'), constant(''))).
+    by(coalesce(values('asset_type'), constant(''))).
+    by(coalesce(values('ip'), constant(''))).fold()
+"""
+    assets = _extract_data(execute_gremlin(asset_script, {"incident_id": incident_id}))
+    detail["assets"] = assets[0] if assets else []
+
+    return detail
+
+
 @app.get("/incidents")
 def list_incidents(page: int = 1, page_size: int = 20) -> Dict[str, Any]:
     offset = (page - 1) * page_size
     script = """
-g.V().hasLabel('Incident').order().by('created_at', decr).range(offset, offset + limit).
+g.V().hasLabel('Incident').order().by('created_at', Order.desc).range(offset, offset + limit).
   project('incident_id','title','status','mttr_minutes','created_at','data_source').
     by(values('incident_id')).by(values('title')).
     by(coalesce(values('status'), constant('closed'))).
@@ -1276,10 +1922,176 @@ g.V().hasLabel('Incident').order().by('created_at', decr).range(offset, offset +
 # V2.0 — 知识抽取队列
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _extract_json_array_from_llm(content: str) -> List[Dict[str, Any]]:
+    content = (content or "").strip()
+    if not content:
+        return []
+    start = content.find("[")
+    end = content.rfind("]") + 1
+    if start < 0 or end <= start:
+        return []
+    raw = content[start:end]
+    parsed = json.loads(raw)
+    if not isinstance(parsed, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for row in parsed:
+        if not isinstance(row, dict):
+            continue
+        fault_name = str(row.get("fault_name", "")).strip()
+        solution_name = str(row.get("solution_name", "")).strip()
+        solution_desc = str(row.get("solution_description", "")).strip()
+        if not fault_name or not solution_name:
+            continue
+        try:
+            conf = float(row.get("confidence", 0.7))
+        except Exception:
+            conf = 0.7
+        conf = max(0.0, min(conf, 1.0))
+        out.append(
+            {
+                "fault_name": fault_name[:200],
+                "solution_name": solution_name[:200],
+                "solution_description": solution_desc[:2000],
+                "confidence": conf,
+            }
+        )
+    return out
+
+
+def _sync_approved_to_dify(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    同步已审核知识到 Dify 数据集（可选配置）。
+    成功返回 {"ok": True, "message": "..."}，失败返回 {"ok": False, "message": "..."}。
+    """
+    if not (DIFY_DATASET_API_URL and DIFY_DATASET_ID and DIFY_DATASET_API_KEY):
+        return {"ok": False, "message": "dify_dataset_not_configured"}
+
+    headers = {
+        "Authorization": f"Bearer {DIFY_DATASET_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    doc_name = f"{item.get('fault_name', 'fault')[:80]}-{item.get('id', '')}"
+    doc_text = (
+        f"故障: {item.get('fault_name', '')}\n"
+        f"方案: {item.get('solution_name', '')}\n"
+        f"描述: {item.get('solution_description', '')}\n"
+        f"来源: {item.get('source_hint', '')}\n"
+        f"置信度: {item.get('confidence', 0.7)}"
+    )
+
+    payload = {
+        "name": doc_name,
+        "text": doc_text,
+        "indexing_technique": "high_quality",
+        "process_rule": {"mode": "automatic"},
+    }
+
+    candidates = [
+        f"{DIFY_DATASET_API_URL}/datasets/{DIFY_DATASET_ID}/document/create-by-text",
+        f"{DIFY_DATASET_API_URL}/datasets/{DIFY_DATASET_ID}/documents/create-by-text",
+    ]
+    last_err = ""
+    for url in candidates:
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            if resp.ok:
+                body = {}
+                try:
+                    body = resp.json()
+                except Exception:
+                    body = {}
+                return {
+                    "ok": True,
+                    "message": "synced",
+                    "document_id": str(body.get("document", {}).get("id", "") or body.get("id", "")),
+                    "endpoint": url,
+                }
+            last_err = f"HTTP {resp.status_code}: {resp.text[:300]}"
+        except Exception as e:
+            last_err = str(e)
+    return {"ok": False, "message": last_err or "dify_sync_failed"}
+
+
+def _link_solution_to_dify_document(item: Dict[str, Any], document_id: str) -> Dict[str, Any]:
+    """
+    将已审核 Solution 与 Dify 文档建立 DOCUMENTED_IN 映射。
+    采用“Solution -> SOP(虚拟文档节点)”边，并将 document_id 写入 chunk_ref。
+    """
+    if not document_id:
+        return {"ok": False, "message": "empty_document_id"}
+    try:
+        solution_name = str(item.get("solution_name", "") or "").strip()
+        if not solution_name:
+            return {"ok": False, "message": "empty_solution_name"}
+
+        # 1) 确保 Solution 顶点存在
+        s_rows = _extract_data(
+            execute_gremlin(
+                "g.V().hasLabel('Solution').has('name', sname).id()",
+                {"sname": solution_name},
+            )
+        )
+        if not s_rows:
+            return {"ok": False, "message": "solution_not_found"}
+        sid = str(s_rows[0])
+
+        # 2) 创建/复用 SOP 虚拟文档顶点（name 是主键）
+        doc_vertex_name = f"dify-doc:{document_id}"
+        doc_vertex_id = _upsert_vertex(
+            "SOP",
+            doc_vertex_name,
+            {
+                "title": f"Dify Document {document_id}",
+                "steps": "",
+                "version": "1.0",
+                "author": "dify-sync",
+                "data_source": "dify_dataset",
+                "confidence": 1.0,
+            },
+        )
+        if not doc_vertex_id:
+            return {"ok": False, "message": "document_vertex_upsert_failed"}
+
+        # 3) 幂等创建 DOCUMENTED_IN 边，并写 chunk_ref=document_id
+        exists = _extract_data(
+            execute_gremlin(
+                "g.V(sid).outE('DOCUMENTED_IN').where(__.inV().hasId(did)).count()",
+                {"sid": sid, "did": doc_vertex_id},
+            )
+        )
+        if int((exists or [0])[0]) == 0:
+            execute_gremlin(
+                "def sv = g.V(sid).next(); def dv = g.V(did).next(); "
+                "g.addE('DOCUMENTED_IN').from(sv).to(dv).property('chunk_ref', docid).iterate()",
+                {"sid": sid, "did": doc_vertex_id, "docid": document_id},
+            )
+            edge_status = "created"
+        else:
+            execute_gremlin(
+                "g.V(sid).outE('DOCUMENTED_IN').where(__.inV().hasId(did)).property('chunk_ref', docid).iterate()",
+                {"sid": sid, "did": doc_vertex_id, "docid": document_id},
+            )
+            edge_status = "updated"
+
+        return {
+            "ok": True,
+            "message": edge_status,
+            "solution_id": sid,
+            "document_vertex_id": doc_vertex_id,
+            "document_vertex_name": doc_vertex_name,
+        }
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
 def _llm_extract(text: str, job_id: str, source_hint: str) -> None:
-    """后台异步抽取任务（调用 LLM 或规则降级）"""
+    """后台异步抽取任务（调用真实 LLM，失败时规则降级）"""
     _extract_jobs[job_id]["status"] = "running"
+    _extract_jobs[job_id]["started_at"] = int(time.time() * 1000)
     candidates: List[Dict[str, Any]] = []
+    used_mode = "fallback_rule"
 
     if LLM_API_URL and LLM_API_KEY:
         try:
@@ -1291,56 +2103,68 @@ def _llm_extract(text: str, job_id: str, source_hint: str) -> None:
   confidence（0.0~1.0）
 
 文本：
-{text[:3000]}
+{text[:12000]}
 
 仅输出 JSON 数组，不要其他内容。"""
 
             resp = requests.post(
                 LLM_API_URL,
-                headers={"Authorization": f"Bearer {LLM_API_KEY}",
-                         "Content-Type": "application/json"},
-                json={"model": LLM_CHAT_MODEL,
-                      "messages": [{"role": "user", "content": prompt}],
-                      "temperature": 0.1},
-                timeout=60,
+                headers={
+                    "Authorization": f"Bearer {LLM_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": LLM_CHAT_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.1,
+                },
+                timeout=90,
             )
             if resp.ok:
                 content = resp.json()["choices"][0]["message"]["content"]
-                start = content.find("[")
-                end = content.rfind("]") + 1
-                if start >= 0 and end > start:
-                    candidates = json.loads(content[start:end])
+                candidates = _extract_json_array_from_llm(content)
+                if candidates:
+                    used_mode = "llm"
+            else:
+                _extract_jobs[job_id]["error"] = f"llm_http_{resp.status_code}"
         except Exception as e:
             _extract_jobs[job_id]["error"] = str(e)
-    else:
-        # 规则降级：逐行解析简单格式
+
+    # 降级：逐行规则抽取
+    if not candidates:
         for line in text.split("\n"):
             line = line.strip()
             if "故障" in line and ("解决" in line or "方案" in line or "处理" in line):
-                candidates.append({
-                    "fault_name": line[:50],
-                    "solution_name": "待补充",
-                    "solution_description": line,
-                    "confidence": 0.5,
-                })
+                candidates.append(
+                    {
+                        "fault_name": line[:80],
+                        "solution_name": "待补充",
+                        "solution_description": line[:500],
+                        "confidence": 0.5,
+                    }
+                )
 
     # 写入审核队列
+    now = int(time.time() * 1000)
     for c in candidates:
         qid = str(uuid.uuid4())[:8]
         _extract_queue[qid] = {
-            "id":          qid,
-            "job_id":      job_id,
+            "id": qid,
+            "job_id": job_id,
             "source_hint": source_hint,
-            "fault_name":           c.get("fault_name", ""),
-            "solution_name":        c.get("solution_name", ""),
+            "fault_name": c.get("fault_name", ""),
+            "solution_name": c.get("solution_name", ""),
             "solution_description": c.get("solution_description", ""),
-            "confidence":           c.get("confidence", 0.7),
-            "status":      "pending",
-            "created_at":  int(time.time() * 1000),
+            "confidence": c.get("confidence", 0.7),
+            "extract_mode": used_mode,
+            "status": "pending",
+            "created_at": now,
         }
 
     _extract_jobs[job_id]["status"] = "done"
+    _extract_jobs[job_id]["extract_mode"] = used_mode
     _extract_jobs[job_id]["candidate_count"] = len(candidates)
+    _extract_jobs[job_id]["finished_at"] = int(time.time() * 1000)
 
 
 @app.post("/extract/submit")
@@ -1351,7 +2175,11 @@ def extract_submit(payload: ExtractSubmitRequest, background_tasks: BackgroundTa
         "source_hint": payload.source_hint,
         "status":      "pending",
         "created_at":  int(time.time() * 1000),
+        "started_at":  0,
+        "finished_at": 0,
         "candidate_count": 0,
+        "extract_mode": "",
+        "error": "",
     }
     background_tasks.add_task(_llm_extract, payload.text, job_id, payload.source_hint)
     return {"status": "ok", "job_id": job_id, "message": "抽取任务已提交，请稍后查看队列"}
@@ -1370,8 +2198,7 @@ def list_extract_queue(status: str = "pending") -> Dict[str, Any]:
     return {"items": items, "total": len(items)}
 
 
-@app.post("/extract/queue/{item_id}/approve")
-def approve_extract(item_id: str) -> Dict[str, Any]:
+def _approve_extract_item(item_id: str) -> Dict[str, Any]:
     if item_id not in _extract_queue:
         raise HTTPException(status_code=404, detail="item not found")
     item = _extract_queue[item_id]
@@ -1387,9 +2214,78 @@ def approve_extract(item_id: str) -> Dict[str, Any]:
         confidence=item.get("confidence", 0.8),
         import_batch_id=f"extract-{item['job_id']}",
     )
-    add_relation(req)
+    add_relation(req, BackgroundTasks())
     item["status"] = "approved"
-    return {"status": "ok", "item_id": item_id, "message": "已写入图谱"}
+    item["approved_at"] = int(time.time() * 1000)
+
+    dify_result = _sync_approved_to_dify(item)
+    item["dify_sync"] = dify_result
+    if dify_result.get("ok"):
+        item["dify_status"] = "synced"
+        item["document_id"] = str(dify_result.get("document_id", "") or "")
+        graph_link = _link_solution_to_dify_document(item, item["document_id"])
+        item["graph_document_link"] = graph_link
+        _extract_doc_links.append(
+            {
+                "item_id": item_id,
+                "job_id": item.get("job_id", ""),
+                "fault_name": item.get("fault_name", ""),
+                "solution_name": item.get("solution_name", ""),
+                "document_id": item.get("document_id", ""),
+                "created_at": int(time.time() * 1000),
+                "graph_document_link": graph_link,
+            }
+        )
+    else:
+        item["dify_status"] = "skipped_or_failed"
+
+    return {
+        "status": "ok",
+        "item_id": item_id,
+        "message": "已写入图谱",
+        "dify_sync": dify_result,
+        "graph_document_link": item.get("graph_document_link", {}),
+    }
+
+
+@app.post("/extract/queue/{item_id}/approve")
+def approve_extract(item_id: str) -> Dict[str, Any]:
+    return _approve_extract_item(item_id)
+
+
+@app.post("/extract/queue/batch-approve")
+def batch_approve_extract(payload: ExtractBatchIdsRequest) -> Dict[str, Any]:
+    seen: set = set()
+    ordered: List[str] = []
+    for raw in payload.item_ids:
+        tid = (raw or "").strip()
+        if not tid or tid in seen:
+            continue
+        seen.add(tid)
+        ordered.append(tid)
+    if len(ordered) > 50:
+        raise HTTPException(status_code=400, detail="batch size exceeds 50")
+
+    results: List[Dict[str, Any]] = []
+    for tid in ordered:
+        try:
+            data = _approve_extract_item(tid)
+            results.append({"item_id": tid, "ok": True, "data": data})
+        except HTTPException as he:
+            results.append({"item_id": tid, "ok": False, "error": he.detail})
+
+    ok_n = sum(1 for r in results if r.get("ok"))
+    return {"results": results, "succeeded": ok_n, "failed": len(results) - ok_n}
+
+
+@app.get("/extract/doc-links")
+def list_extract_doc_links(job_id: str = "", limit: int = 100) -> Dict[str, Any]:
+    rows = list(_extract_doc_links)
+    if job_id.strip():
+        rows = [r for r in rows if str(r.get("job_id", "")) == job_id.strip()]
+    rows.sort(key=lambda x: int(x.get("created_at", 0)), reverse=True)
+    lim = max(1, min(int(limit), 500))
+    return {"items": rows[:lim], "total": len(rows)}
 
 
 @app.post("/extract/queue/{item_id}/reject")
@@ -1398,6 +2294,31 @@ def reject_extract(item_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="item not found")
     _extract_queue[item_id]["status"] = "rejected"
     return {"status": "ok", "item_id": item_id}
+
+
+@app.post("/extract/queue/batch-reject")
+def batch_reject_extract(payload: ExtractBatchIdsRequest) -> Dict[str, Any]:
+    seen: set = set()
+    ordered: List[str] = []
+    for raw in payload.item_ids:
+        tid = (raw or "").strip()
+        if not tid or tid in seen:
+            continue
+        seen.add(tid)
+        ordered.append(tid)
+    if len(ordered) > 50:
+        raise HTTPException(status_code=400, detail="batch size exceeds 50")
+
+    results: List[Dict[str, Any]] = []
+    for tid in ordered:
+        if tid not in _extract_queue:
+            results.append({"item_id": tid, "ok": False, "error": "item not found"})
+            continue
+        _extract_queue[tid]["status"] = "rejected"
+        results.append({"item_id": tid, "ok": True})
+
+    ok_n = sum(1 for r in results if r.get("ok"))
+    return {"results": results, "succeeded": ok_n, "failed": len(results) - ok_n}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1433,30 +2354,27 @@ def ops_stats() -> Dict[str, Any]:
         covered = 0
     coverage_rate = round(covered / fault_count * 100, 1) if fault_count > 0 else 0.0
 
-    # Fault 按 data_source 分布：按图中实际取值计数（兼容 gaia、open_gaia 等），并单独统计未设属性
+    # Fault 按 data_source 分布：
+    # 改为分页拉取 Fault 顶点属性后在内存聚合，避免 Gremlin count/not(__.has()) 在部分环境报错
     source_dist: Dict[str, int] = {}
     try:
-        distinct_src = _extract_data(
-            execute_gremlin("g.V().hasLabel('Fault').values('data_source').dedup()")
-        )
-        for src in distinct_src or []:
-            if src is None:
-                continue
-            r = execute_gremlin(
-                "g.V().hasLabel('Fault').has('data_source', ds).count()",
-                {"ds": src},
+        rows = _gremlin_collect_paged(
+            lambda lo, hi: (
+                "g.V().hasLabel('Fault').order().by('name')"
+                f".range({lo}, {hi})"
+                ".project('name','data_source')"
+                ".by(values('name'))"
+                ".by(coalesce(values('data_source'), constant('unset')))"
             )
-            cnt = int((_extract_data(r) or [0])[0])
-            if cnt <= 0:
-                continue
-            key = "unset" if str(src).strip() == "" else str(src)
-            source_dist[key] = source_dist.get(key, 0) + cnt
-        r_nop = execute_gremlin(
-            "g.V().hasLabel('Fault').not(__.has('data_source')).count()"
         )
-        no_prop = int((_extract_data(r_nop) or [0])[0])
-        if no_prop > 0:
-            source_dist["unset"] = source_dist.get("unset", 0) + no_prop
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            src = row.get("data_source", "unset")
+            key = str(src).strip() if src is not None else "unset"
+            if not key:
+                key = "unset"
+            source_dist[key] = source_dist.get(key, 0) + 1
     except Exception:
         source_dist = {}
 
@@ -1465,7 +2383,14 @@ def ops_stats() -> Dict[str, Any]:
             r = execute_gremlin(f"g.E().hasLabel('{lbl}').count()")
             return int((_extract_data(r) or [0])[0])
         except Exception:
-            return 0
+            # 某些 HugeGraph 版本在 edge count() 上会触发异常，降级为分页取 id 后计数
+            try:
+                rows = _gremlin_collect_paged(
+                    lambda lo, hi: f"g.E().hasLabel('{lbl}').range({lo}, {hi}).id()"
+                )
+                return len(rows or [])
+            except Exception:
+                return 0
 
     # 方案复用率
     resolved = 0

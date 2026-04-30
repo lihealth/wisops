@@ -145,10 +145,10 @@
 
 ```powershell
 # 导入 JSON 格式数据
-python scripts/import_faults.py data/faults_sample.json --api http://localhost:8002
+python scripts/import_faults.py data/faults_sample.json --api http://localhost:8021
 
 # 导入 CSV 格式数据（字段：fault_name,solution_name,solution_description）
-python scripts/import_faults.py data/faults.csv --api http://localhost:8002
+python scripts/import_faults.py data/faults.csv --api http://localhost:8021
 ```
 
 #### 验收标准
@@ -295,7 +295,7 @@ wisops/
 - `docker-compose.yml` 覆盖全部服务：PostgreSQL / Redis / Qdrant / HugeGraph / Dify API / Dify Worker / Dify Web。
 - Dify 访问地址、CORS 配置已修复（`CONSOLE_API_URL` 等环境变量正确）。
 - `README.md` 包含启动步骤、验收流程、常见排障。
-- 端口规划避免与系统本地端口冲突（PG→5433、Redis→6380、Qdrant→6334、HugeGraph→8081、Dify→8281/5002、graph-api→8002）。
+- 端口规划避免与系统本地端口冲突（PG→5433、Redis→6380、Qdrant→6334、HugeGraph→8081、Dify→8281/5002、graph-api→8021）。
 
 #### 待完成
 
@@ -316,7 +316,7 @@ wisops/
 | Dify Web | 8281 | 主控制台与问答界面 |
 | Dify API | 5002 | 内部/API 调用 |
 | HugeGraph | 8081 | 图数据库管理界面 |
-| graph-api | 8002 | 图谱 REST 接口 |
+| graph-api | 8021 | 图谱 REST 接口 |
 | graph-ui | **8282** | 图谱管理前端（新增） |
 | PostgreSQL | 5433 | 数据库（内部） |
 | Redis | 6380 | 缓存（内部） |
@@ -383,7 +383,7 @@ wisops/
 
 ### 6.1 graph-api 接口
 
-**基础 URL（容器化）**：`http://localhost:8002`  
+**基础 URL（容器化）**：`http://localhost:8021`  
 **基础 URL（GR-UI 内通过 Nginx 反代）**：`/api`
 
 #### GET /health
@@ -595,7 +595,7 @@ HTTP 状态码说明：
 
 #### 图谱服务
 
-- [ ] `GET http://localhost:8002/health` 返回 `{"status":"ok"}`。
+- [ ] `GET http://localhost:8021/health` 返回 `{"status":"ok"}`。
 - [ ] `POST /graph/add` 写入一条，再 `GET /graph/query` 能查询到。
 - [ ] `GET /graph/faults` 返回已有故障列表。
 

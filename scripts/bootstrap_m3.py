@@ -5,7 +5,7 @@
 前置：graph-api 已启动且可连 HugeGraph。
 
   python scripts/bootstrap_m3.py
-  python scripts/bootstrap_m3.py --api http://localhost:8002 --top-k 2
+  python scripts/bootstrap_m3.py --api http://localhost:8021 --top-k 2
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def _post_empty(url: str) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="M3 bootstrap: schema, categories, triggers")
-    ap.add_argument("--api", default="http://localhost:8002", help="graph-api base URL")
+    ap.add_argument("--api", default="http://localhost:8021", help="graph-api base URL")
     ap.add_argument("--top-k", type=int, default=2, dest="top_k", help="top_k_per_alert (1–5)")
     ap.add_argument(
         "--vectors",

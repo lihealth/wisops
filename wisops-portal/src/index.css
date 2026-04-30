@@ -25,6 +25,24 @@ html, body, #root {
 
 a { color: inherit; text-decoration: none; }
 
+/* 可点击控件：手型提示（disabled 保持禁止） */
+button,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+[role="button"],
+summary,
+select,
+label[for] {
+  cursor: pointer;
+}
+button:disabled,
+input:disabled,
+[role="button"][aria-disabled="true"],
+select:disabled {
+  cursor: not-allowed;
+}
+
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }

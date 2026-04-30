@@ -13,14 +13,14 @@
 2. [用户角色](#2-用户角色)
 3. [功能模块总览](#3-功能模块总览)
 4. [功能详细说明](#4-功能详细说明)
-   - 4.1 [SCH — 图谱本体 2.0](#41-sch--图谱本体-20)
-   - 4.2 [DATA — 公开数据与混合知识库](#42-data--公开数据与混合知识库)
-   - 4.3 [EXT — 动态构建与知识自动沉淀](#43-ext--动态构建与知识自动沉淀)
-   - 4.4 [RETR — 图谱增强检索与相似推荐](#44-retr--图谱增强检索与相似推荐)
-   - 4.5 [PORTAL — 统一门户 V2](#45-portal--统一门户-v2)
-   - 4.6 [INT — 外部系统集成](#46-int--外部系统集成)
-   - 4.7 [OPS — 知识运营与看板](#47-ops--知识运营与看板)
-   - 4.8 [SEC — 权限、审计与安全收口](#48-sec--权限审计与安全收口)
+  - 4.1 [SCH — 图谱本体 2.0](#41-sch--图谱本体-20)
+  - 4.2 [DATA — 公开数据与混合知识库](#42-data--公开数据与混合知识库)
+  - 4.3 [EXT — 动态构建与知识自动沉淀](#43-ext--动态构建与知识自动沉淀)
+  - 4.4 [RETR — 图谱增强检索与相似推荐](#44-retr--图谱增强检索与相似推荐)
+  - 4.5 [PORTAL — 统一门户 V2](#45-portal--统一门户-v2)
+  - 4.6 [INT — 外部系统集成](#46-int--外部系统集成)
+  - 4.7 [OPS — 知识运营与看板](#47-ops--知识运营与看板)
+  - 4.8 [SEC — 权限、审计与安全收口](#48-sec--权限审计与安全收口)
 5. [系统架构](#5-系统架构)
 6. [图谱 Schema 规范](#6-图谱-schema-规范)
 7. [接口规范](#7-接口规范)
@@ -39,13 +39,15 @@
 
 WisOps V1.x 已完成以下能力：
 
-| 能力 | 状态 |
-|------|------|
-| Dify RAG 知识库问答（流式输出 + 知识引用） | ✅ 可用 |
-| 故障–方案二部图（Fault / Solution / HAS_SOLUTION） | ✅ 可用 |
+
+| 能力                                                           | 状态   |
+| ------------------------------------------------------------ | ---- |
+| Dify RAG 知识库问答（流式输出 + 知识引用）                                  | ✅ 可用 |
+| 故障–方案二部图（Fault / Solution / HAS_SOLUTION）                    | ✅ 可用 |
 | graph-api REST 接口（health / add / query / faults / visualize） | ✅ 可用 |
-| wisops-portal 统一门户（问答 + 图谱管理 + 轻量可视化） | ✅ 可用 |
-| Docker Compose 一键部署 | ✅ 可用 |
+| wisops-portal 统一门户（问答 + 图谱管理 + 轻量可视化）                        | ✅ 可用 |
+| Docker Compose 一键部署                                          | ✅ 可用 |
+
 
 **V1.x 主要瓶颈**：图谱模型过于简单（仅二部图）、RAG 与图谱割裂（未融合推理）、缺乏知识自动沉淀与运营闭环、无外部系统集成能力。
 
@@ -61,40 +63,46 @@ V2.0 实现从「**能用**」到「**可运营、可闭环、带轻量推理与
 
 ### 1.3 核心价值主张
 
-| 维度 | V1.x | V2.0 新增 |
-|------|------|-----------|
+
+| 维度   | V1.x      | V2.0 新增                                              |
+| ---- | --------- | ---------------------------------------------------- |
 | 知识广度 | 手工录入故障–方案 | 公开数据（GAIA / LogHub / StackOverflow）批量打底，≥ 1000 条故障知识 |
-| 推理能力 | 关键词查方案 | 向量相似推荐 + 图谱子图融合（Graph-RAG） |
-| 沉淀闭环 | 无 | 文档/工单 → LLM 抽取 → 审核 → 图谱自动写入 |
-| 模型完备 | 二部图 | 全链路图（资产–告警–故障–方案–SOP–人员–分类） |
-| 运营可见 | 无 | MTTR、覆盖率、复用率看板 |
+| 推理能力 | 关键词查方案    | 向量相似推荐 + 图谱子图融合（Graph-RAG）                           |
+| 沉淀闭环 | 无         | 文档/工单 → LLM 抽取 → 审核 → 图谱自动写入                         |
+| 模型完备 | 二部图       | 全链路图（资产–告警–故障–方案–SOP–人员–分类）                          |
+| 运营可见 | 无         | MTTR、覆盖率、复用率看板                                       |
+
 
 ---
 
 ## 2. 用户角色
 
-| 角色 | 说明 | V2.0 典型操作 |
-|------|------|---------------|
-| **超级管理员** | 系统配置、安全策略 | 配置集成、管理角色、查看审计日志 |
-| **知识运营** | 知识库日常维护与运营 | 审核抽取结果、批量导入、发布 SOP、维护分类树 |
-| **图谱审核员** | 抽取候选的审核入库 | 审批/拒绝候选知识条目 |
-| **运维工程师** | 日常故障处理 | 智能问答、相似故障推荐、查方案/SOP |
-| **只读用户（可选）** | 查询浏览 | 仅查询，不录入、不审核 |
+
+| 角色           | 说明         | V2.0 典型操作                |
+| ------------ | ---------- | ------------------------ |
+| **超级管理员**    | 系统配置、安全策略  | 配置集成、管理角色、查看审计日志         |
+| **知识运营**     | 知识库日常维护与运营 | 审核抽取结果、批量导入、发布 SOP、维护分类树 |
+| **图谱审核员**    | 抽取候选的审核入库  | 审批/拒绝候选知识条目              |
+| **运维工程师**    | 日常故障处理     | 智能问答、相似故障推荐、查方案/SOP      |
+| **只读用户（可选）** | 查询浏览       | 仅查询，不录入、不审核              |
+
 
 ---
 
 ## 3. 功能模块总览
 
-| 模块 ID | 模块名称 | 核心交付 | V2.0 优先级 |
-|---------|----------|----------|------------|
-| **SCH** | 图谱本体 2.0 | 全链路 Schema、溯源标记 | P0 |
-| **DATA** | 公开数据与混合知识库 | 批量导入管线、数据分层 | P0 |
-| **EXT** | 动态构建与知识沉淀 | 文档抽取、工单闭环 | P0 |
-| **RETR** | 图谱增强检索与推荐 | Graph-RAG、相似故障推荐 | P0 |
-| **PORTAL** | 统一门户 V2 | 看板、审核台、融合搜索 | P1 |
-| **INT** | 外部系统集成 | CMDB/监控/工单对接 | P1~P2 |
-| **OPS** | 知识运营与看板 | 运营指标、闭环规则 | P1 |
-| **SEC** | 权限、审计与安全 | 角色矩阵、审计日志、.env 化 | P1 |
+
+| 模块 ID      | 模块名称       | 核心交付             | V2.0 优先级 |
+| ---------- | ---------- | ---------------- | -------- |
+| **SCH**    | 图谱本体 2.0   | 全链路 Schema、溯源标记  | P0       |
+| **DATA**   | 公开数据与混合知识库 | 批量导入管线、数据分层      | P0       |
+| **EXT**    | 动态构建与知识沉淀  | 文档抽取、工单闭环        | P0       |
+| **RETR**   | 图谱增强检索与推荐  | Graph-RAG、相似故障推荐 | P0       |
+| **PORTAL** | 统一门户 V2    | 看板、审核台、融合搜索      | P1       |
+| **INT**    | 外部系统集成     | CMDB/监控/工单对接     | P1~P2    |
+| **OPS**    | 知识运营与看板    | 运营指标、闭环规则        | P1       |
+| **SEC**    | 权限、审计与安全   | 角色矩阵、审计日志、.env 化 | P1       |
+
 
 > **图例**：P0 = 阻塞交付 / P1 = 强烈建议 / P2 = 有时间再做
 
@@ -110,42 +118,48 @@ V1.x 图谱仅有 Fault / Solution / HAS_SOLUTION，无法承载资产关联、�
 
 #### 新增实体（顶点）
 
-| 顶点类型 | 主键属性 | 关键附加属性 | 说明 |
-|----------|----------|--------------|------|
-| **Fault**（保留） | `name` | `category`、`severity`、`data_source`、`confidence` | 故障现象（扩展属性） |
-| **Solution**（保留） | `name` | `description`、`data_source`、`confidence` | 解决方案 |
-| **SOP** | `title` | `steps`（JSON 数组）、`version`、`author` | 标准处置步骤文档 |
-| **Asset** | `asset_id` | `name`、`type`（server/middleware/cluster/network）、`ip`、`env`（prod/test） | 业务资产，来自 CMDB 或手工 |
-| **Alert** | `alert_id` | `content`、`level`（P1–P4）、`source`、`occurred_at` | 监控告警事件 |
-| **Incident** | `incident_id` | `title`、`status`、`created_at`、`closed_at`、`mttr_minutes` | 工单 / 事件单 |
-| **Person** | `username` | `name`、`team`、`expertise` | 处理人 / 领域专家 |
-| **Category** | `code` | `name`、`level`（P1–P4）、`domain`（hardware/system/network/storage/middleware） | ITIL 分类，作故障/告警分类树 |
+
+| 顶点类型             | 主键属性          | 关键附加属性                                                                     | 说明                |
+| ---------------- | ------------- | -------------------------------------------------------------------------- | ----------------- |
+| **Fault**（保留）    | `name`        | `category`、`severity`、`data_source`、`confidence`                           | 故障现象（扩展属性）        |
+| **Solution**（保留） | `name`        | `description`、`data_source`、`confidence`                                   | 解决方案              |
+| **SOP**          | `title`       | `steps`（JSON 数组）、`version`、`author`                                        | 标准处置步骤文档          |
+| **Asset**        | `asset_id`    | `name`、`type`（server/middleware/cluster/network）、`ip`、`env`（prod/test）     | 业务资产，来自 CMDB 或手工  |
+| **Alert**        | `alert_id`    | `content`、`level`（P1–P4）、`source`、`occurred_at`                            | 监控告警事件            |
+| **Incident**     | `incident_id` | `title`、`status`、`created_at`、`closed_at`、`mttr_minutes`                   | 工单 / 事件单          |
+| **Person**       | `username`    | `name`、`team`、`expertise`                                                  | 处理人 / 领域专家        |
+| **Category**     | `code`        | `name`、`level`（P1–P4）、`domain`（hardware/system/network/storage/middleware） | ITIL 分类，作故障/告警分类树 |
+
 
 #### 新增关系（边）
 
-| 边类型 | 起点 | 终点 | 关键属性 | 说明 |
-|--------|------|------|----------|------|
-| `HAS_SOLUTION`（保留） | Fault | Solution | — | 故障对应解决方案 |
-| `HAS_SOP` | Fault | SOP | — | 故障关联处置步骤文档 |
-| `DOCUMENTED_IN` | Solution | 文档 chunk ID（虚属性） | `chunk_ref` | 关联 RAG 知识库片段 |
-| `CLASSIFIED_AS` | Fault | Category | — | 故障的 ITIL 分类 |
-| `SIMILAR_TO` | Fault | Fault | `score`（相似度）、`method` | 向量/规则计算相似故障 |
-| `HAS_ALERT` | Asset | Alert | `first_seen_at` | 资产上产生的告警 |
-| `TRIGGERS` | Alert | Fault | `confidence` | 告警触发的故障现象 |
-| `INVOLVES` | Incident | Asset | `role`（affected/root_cause） | 工单涉及的资产 |
-| `CAUSED_BY` | Incident | Fault | — | 工单对应的故障原因 |
-| `RESOLVED_BY` | Incident | Solution | `adopted_at` | 工单使用的解决方案 |
-| `CONTRIBUTED` | Person | Solution/SOP | `created_at` | 专家贡献的知识 |
-| `HANDLED_BY` | Incident | Person | `role`（owner/collaborator） | 工单处理人 |
+
+| 边类型                | 起点       | 终点               | 关键属性                        | 说明           |
+| ------------------ | -------- | ---------------- | --------------------------- | ------------ |
+| `HAS_SOLUTION`（保留） | Fault    | Solution         | —                           | 故障对应解决方案     |
+| `HAS_SOP`          | Fault    | SOP              | —                           | 故障关联处置步骤文档   |
+| `DOCUMENTED_IN`    | Solution | 文档 chunk ID（虚属性） | `chunk_ref`                 | 关联 RAG 知识库片段 |
+| `CLASSIFIED_AS`    | Fault    | Category         | —                           | 故障的 ITIL 分类  |
+| `SIMILAR_TO`       | Fault    | Fault            | `score`（相似度）、`method`       | 向量/规则计算相似故障  |
+| `HAS_ALERT`        | Asset    | Alert            | `first_seen_at`             | 资产上产生的告警     |
+| `TRIGGERS`         | Alert    | Fault            | `confidence`                | 告警触发的故障现象    |
+| `INVOLVES`         | Incident | Asset            | `role`（affected/root_cause） | 工单涉及的资产      |
+| `CAUSED_BY`        | Incident | Fault            | —                           | 工单对应的故障原因    |
+| `RESOLVED_BY`      | Incident | Solution         | `adopted_at`                | 工单使用的解决方案    |
+| `CONTRIBUTED`      | Person   | Solution/SOP     | `created_at`                | 专家贡献的知识      |
+| `HANDLED_BY`       | Incident | Person           | `role`（owner/collaborator）  | 工单处理人        |
+
 
 #### 溯源标记（所有节点/边共有属性）
 
-| 属性 | 类型 | 说明 |
-|------|------|------|
-| `data_source` | String | `open_gaia` / `stackoverflow` / `logHub` / `internal_ticket` / `manual` |
-| `confidence` | Float | 0.0 ~ 1.0，人工录入默认 1.0，LLM 抽取按模型置信度 |
-| `import_batch_id` | String | 导入批次 ID，便于回滚与溯源 |
-| `created_at` | Long | 创建时间戳 |
+
+| 属性                | 类型     | 说明                                                                      |
+| ----------------- | ------ | ----------------------------------------------------------------------- |
+| `data_source`     | String | `open_gaia` / `stackoverflow` / `logHub` / `internal_ticket` / `manual` |
+| `confidence`      | Float  | 0.0 ~ 1.0，人工录入默认 1.0，LLM 抽取按模型置信度                                       |
+| `import_batch_id` | String | 导入批次 ID，便于回滚与溯源                                                         |
+| `created_at`      | Long   | 创建时间戳                                                                   |
+
 
 #### 验收标准
 
@@ -162,13 +176,15 @@ V1.x 图谱仅有 Fault / Solution / HAS_SOLUTION，无法承载资产关联、�
 
 #### 数据源清单
 
-| 数据集 | 类型 | 规模 | 映射目标 | 许可证 |
-|--------|------|------|----------|--------|
-| **GAIA AIOps** | 指标 + 日志 + 故障标签 | 6500+ 指标 / 700 万+ 日志 | Alert → Fault → Category | 学术/开源可用 |
-| **LogHub** | 真实故障日志 | Hadoop/Linux/K8s/Spark | Alert → Fault、TRIGGERS 边 | Apache 2.0 |
-| **StackOverflow 运维 Dump** | 问答对 | 500 万+ | Fault → Solution（`data_source: stackoverflow`） | CC BY-SA |
-| **ITIL 故障分类模板** | 分类树 | P1–P4 / 硬件/系统/网络/存储 | Category 全量初始化 | 公开 |
-| **企业自有数据** | 工单/文档/SOP | 按实际 | 全实体，`confidence: 1.0` | 内部 |
+
+| 数据集                       | 类型             | 规模                     | 映射目标                                           | 许可证        |
+| ------------------------- | -------------- | ---------------------- | ---------------------------------------------- | ---------- |
+| **GAIA AIOps**            | 指标 + 日志 + 故障标签 | 6500+ 指标 / 700 万+ 日志   | Alert → Fault → Category                       | 学术/开源可用    |
+| **LogHub**                | 真实故障日志         | Hadoop/Linux/K8s/Spark | Alert → Fault、TRIGGERS 边                       | Apache 2.0 |
+| **StackOverflow 运维 Dump** | 问答对            | 500 万+                 | Fault → Solution（`data_source: stackoverflow`） | CC BY-SA   |
+| **ITIL 故障分类模板**           | 分类树            | P1–P4 / 硬件/系统/网络/存储    | Category 全量初始化                                 | 公开         |
+| **企业自有数据**                | 工单/文档/SOP      | 按实际                    | 全实体，`confidence: 1.0`                          | 内部         |
+
 
 #### 功能需求
 
@@ -183,7 +199,7 @@ V1.x 图谱仅有 Fault / Solution / HAS_SOLUTION，无法承载资产关联、�
 ```powershell
 python scripts/import_v2.py data/gaia_faults.jsonl \
   --source open_gaia \
-  --target-api http://localhost:8002 \
+  --target-api http://localhost:8021 \
   --batch-id gaia-2026-04-28 \
   --conflict skip
 ```
@@ -379,7 +395,7 @@ Response:
 
 #### V1.5 现状
 
-wisops-portal 已有：首页导航、AI 问答（流式）、图谱管理（查询/可视化/录入），端口 `:8090`。
+wisops-portal 已有：首页导航、AI 问答（流式）、图谱管理（查询/可视化/录入），端口 `:8091`。
 
 #### V2.0 新增页面
 
@@ -391,14 +407,16 @@ wisops-portal 已有：首页导航、AI 问答（流式）、图谱管理（查
 
 **P2 — 知识运营看板（`/dashboard`）**
 
-| 指标卡 | 说明 |
-|--------|------|
-| 图谱节点总量 | 按实体类型分布饼图 |
-| 数据源分布 | open vs internal 占比 |
-| 知识覆盖率 | 有 Solution 的 Fault 占比 |
-| 方案复用率 | Incident RESOLVED_BY 命中已有方案的比率 |
-| MTTR 趋势 | 按周/月平均分钟数折线（需 Incident 数据） |
-| 知识增长曲线 | 按周新增节点/边数 |
+
+| 指标卡     | 说明                             |
+| ------- | ------------------------------ |
+| 图谱节点总量  | 按实体类型分布饼图                      |
+| 数据源分布   | open vs internal 占比            |
+| 知识覆盖率   | 有 Solution 的 Fault 占比          |
+| 方案复用率   | Incident RESOLVED_BY 命中已有方案的比率 |
+| MTTR 趋势 | 按周/月平均分钟数折线（需 Incident 数据）     |
+| 知识增长曲线  | 按周新增节点/边数                      |
+
 
 **P3 — SOP 管理页（`/sop`）**
 
@@ -413,11 +431,13 @@ wisops-portal 已有：首页导航、AI 问答（流式）、图谱管理（查
 
 **全局交互增强**
 
-| 功能 | 说明 |
-|------|------|
-| 问答模式切换 | 「纯 RAG / 图谱融合 / 自动路由」三选一 |
-| 知识沉淀快捷入口 | 问答页右上角「保存为知识」按钮 → 预填录入表单 |
-| 角色权限可见性 | 未登录或低权限用户不可见审核台、抽取、看板管理操作 |
+
+| 功能       | 说明                        |
+| -------- | ------------------------- |
+| 问答模式切换   | 「纯 RAG / 图谱融合 / 自动路由」三选一  |
+| 知识沉淀快捷入口 | 问答页右上角「保存为知识」按钮 → 预填录入表单  |
+| 角色权限可见性  | 未登录或低权限用户不可见审核台、抽取、看板管理操作 |
+
 
 ---
 
@@ -463,22 +483,26 @@ wisops-portal 已有：首页导航、AI 问答（流式）、图谱管理（查
 
 #### 运营指标定义
 
-| 指标 | 计算方式 | 目标值（参考） |
-|------|----------|----------------|
-| **知识覆盖率** | 有 ≥1 条 Solution 的 Fault / 总 Fault × 100% | ≥ 80% |
+
+| 指标        | 计算方式                                          | 目标值（参考）      |
+| --------- | --------------------------------------------- | ------------ |
+| **知识覆盖率** | 有 ≥1 条 Solution 的 Fault / 总 Fault × 100%      | ≥ 80%        |
 | **方案复用率** | `RESOLVED_BY` 边总数 / Closed Incident 总数 × 100% | ≥ 60%（数据足量后） |
-| **MTTR** | Incident.mttr_minutes 平均值，按周/月聚合 | 持续下降趋势 |
-| **图谱增长** | 按周新增 Fault / Solution / SOP 节点数 | 正向增长 |
-| **抽取转化率** | approve 数 / 提交抽取总数 × 100% | ≥ 50% |
+| **MTTR**  | Incident.mttr_minutes 平均值，按周/月聚合              | 持续下降趋势       |
+| **图谱增长**  | 按周新增 Fault / Solution / SOP 节点数               | 正向增长         |
+| **抽取转化率** | approve 数 / 提交抽取总数 × 100%                     | ≥ 50%        |
+
 
 #### 运营规则
 
-| 规则 | 实现级别 |
-|------|---------|
-| 关单提示：建议关联知识条目 | V2.0 门户提示（非强制） |
-| 新故障：录入后自动触发相似推荐并展示 | V2.0 强制 |
-| 抽取候选 48 小时未审核：自动邮件提醒 | V2.0 可选（依赖邮件配置） |
-| 月度知识运营报告 | V2.0 手动导出，V3.0 自动推送 |
+
+| 规则                   | 实现级别                |
+| -------------------- | ------------------- |
+| 关单提示：建议关联知识条目        | V2.0 门户提示（非强制）      |
+| 新故障：录入后自动触发相似推荐并展示   | V2.0 强制             |
+| 抽取候选 48 小时未审核：自动邮件提醒 | V2.0 可选（依赖邮件配置）     |
+| 月度知识运营报告             | V2.0 手动导出，V3.0 自动推送 |
+
 
 #### 后端新增接口
 
@@ -493,19 +517,21 @@ GET /ops/stats/growth    # 按时间窗口返回节点增长数据（周/月）
 
 #### 角色权限矩阵
 
-| 操作 | 超级管理员 | 知识运营 | 图谱审核员 | 运维工程师 | 只读用户 |
-|------|-----------|---------|-----------|-----------|---------|
-| 查询问答 | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 图谱查询/可视化 | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 图谱录入（手工） | ✅ | ✅ | ❌ | ✅ | ❌ |
-| 提交文档抽取 | ✅ | ✅ | ❌ | ✅ | ❌ |
-| 审核候选条目 | ✅ | ✅ | ✅ | ❌ | ❌ |
-| 管理 SOP | ✅ | ✅ | ❌ | ❌ | ❌ |
-| 查看运营看板 | ✅ | ✅ | ❌ | ❌ | ❌ |
-| 管理用户/角色 | ✅ | ❌ | ❌ | ❌ | ❌ |
-| 批量数据导入 | ✅ | ✅ | ❌ | ❌ | ❌ |
-| 系统配置（.env） | ✅ | ❌ | ❌ | ❌ | ❌ |
-| 查看审计日志 | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+| 操作         | 超级管理员 | 知识运营 | 图谱审核员 | 运维工程师 | 只读用户 |
+| ---------- | ----- | ---- | ----- | ----- | ---- |
+| 查询问答       | ✅     | ✅    | ✅     | ✅     | ✅    |
+| 图谱查询/可视化   | ✅     | ✅    | ✅     | ✅     | ✅    |
+| 图谱录入（手工）   | ✅     | ✅    | ❌     | ✅     | ❌    |
+| 提交文档抽取     | ✅     | ✅    | ❌     | ✅     | ❌    |
+| 审核候选条目     | ✅     | ✅    | ✅     | ❌     | ❌    |
+| 管理 SOP     | ✅     | ✅    | ❌     | ❌     | ❌    |
+| 查看运营看板     | ✅     | ✅    | ❌     | ❌     | ❌    |
+| 管理用户/角色    | ✅     | ❌    | ❌     | ❌     | ❌    |
+| 批量数据导入     | ✅     | ✅    | ❌     | ❌     | ❌    |
+| 系统配置（.env） | ✅     | ❌    | ❌     | ❌     | ❌    |
+| 查看审计日志     | ✅     | ❌    | ❌     | ❌     | ❌    |
+
 
 #### 审计日志
 
@@ -532,7 +558,7 @@ GET /ops/stats/growth    # 按时间窗口返回节点增长数据（周/月）
 
 ```
 浏览器
-  └── :8090  →  wisops-portal V2（Nginx + React）
+  └── :8091  →  wisops-portal V2（Nginx + React）
                   ├── /           首页 / 看板 / SOP 管理
                   ├── /chat       AI 融合问答（RAG + Graph-RAG）
                   ├── /graph      图谱查询 / 可视化 / 录入
@@ -585,14 +611,16 @@ GET /ops/stats/growth    # 按时间窗口返回节点增长数据（周/月）
 
 ### 5.3 技术选型（V2.0 新增/变化）
 
-| 组件 | 技术 | 变化说明 |
-|------|------|----------|
-| 图谱 API | FastAPI（自研扩展） | 新增 extract / recommend / assets / ops / alerts 路由 |
-| 抽取任务队列 | Redis（已有） + Celery 或轻量协程 | 新增，异步化抽取任务 |
-| 向量相似检索 | Qdrant + 新 `fault_vectors` Collection | 原 collection 留 RAG，新建故障专用 |
-| 前端门户 | Vite + React（扩展 wisops-portal） | 新增页面、看板、审核台 |
-| LLM 调用 | 复用 Dify embedding + 外部 Chat API | 可切换：通义千问 / 文心 / GLM |
-| 全文检索（P2） | Elasticsearch 7.x | 可选，支撑 SOP 全文 + 资产搜索 |
+
+| 组件       | 技术                                    | 变化说明                                              |
+| -------- | ------------------------------------- | ------------------------------------------------- |
+| 图谱 API   | FastAPI（自研扩展）                         | 新增 extract / recommend / assets / ops / alerts 路由 |
+| 抽取任务队列   | Redis（已有） + Celery 或轻量协程              | 新增，异步化抽取任务                                        |
+| 向量相似检索   | Qdrant + 新 `fault_vectors` Collection | 原 collection 留 RAG，新建故障专用                         |
+| 前端门户     | Vite + React（扩展 wisops-portal）        | 新增页面、看板、审核台                                       |
+| LLM 调用   | 复用 Dify embedding + 外部 Chat API       | 可切换：通义千问 / 文心 / GLM                               |
+| 全文检索（P2） | Elasticsearch 7.x                     | 可选，支撑 SOP 全文 + 资产搜索                               |
+
 
 ---
 
@@ -673,13 +701,15 @@ schema.edgeLabel('HANDLED_BY').sourceLabel('Incident').targetLabel('Person').pro
 
 ### 7.1 保留 V1.x 接口（不变）
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/health` | 健康检查 |
-| POST | `/graph/add` | 新增故障–方案关系 |
-| GET | `/graph/query` | 查询指定故障的方案列表 |
-| GET | `/graph/faults` | 获取所有故障名列表 |
-| GET | `/graph/visualize` | 获取故障子图节点/边（SVG 用） |
+
+| 方法   | 路径                 | 说明                |
+| ---- | ------------------ | ----------------- |
+| GET  | `/health`          | 健康检查              |
+| POST | `/graph/add`       | 新增故障–方案关系         |
+| GET  | `/graph/query`     | 查询指定故障的方案列表       |
+| GET  | `/graph/faults`    | 获取所有故障名列表         |
+| GET  | `/graph/visualize` | 获取故障子图节点/边（SVG 用） |
+
 
 ### 7.2 V2.0 新增接口
 
@@ -751,22 +781,26 @@ HTTP 状态码：200 成功 / 400 参数错误 / 401 未授权 / 403 权限不�
 
 ### 8.1 数据分层策略
 
-| 层级 | data_source 值 | 说明 | 权重（检索排序） |
-|------|----------------|------|----------------|
-| 企业自有 | `internal_ticket` / `manual` | 最高质量，来自真实工单与人工录入 | 1.0 |
-| LLM 抽取（已审核） | `extracted_approved` | 可信，经人工审核 | 0.9 |
-| 公开精选 | `stackoverflow_curated` | 经人工筛选的公开问答 | 0.8 |
-| 公开原始 | `open_gaia` / `logHub` / `stackoverflow` | 公开数据，未精选 | 0.6 |
+
+| 层级          | data_source 值                            | 说明               | 权重（检索排序） |
+| ----------- | ---------------------------------------- | ---------------- | -------- |
+| 企业自有        | `internal_ticket` / `manual`             | 最高质量，来自真实工单与人工录入 | 1.0      |
+| LLM 抽取（已审核） | `extracted_approved`                     | 可信，经人工审核         | 0.9      |
+| 公开精选        | `stackoverflow_curated`                  | 经人工筛选的公开问答       | 0.8      |
+| 公开原始        | `open_gaia` / `logHub` / `stackoverflow` | 公开数据，未精选         | 0.6      |
+
 
 ### 8.2 预置数据目标（V2.0）
 
-| 数据集 | 目标量 | 格式 | 导入方式 |
-|--------|--------|------|----------|
-| GAIA 故障–根因 | ≥ 300 条 | JSONL | `scripts/import_v2.py` |
-| LogHub 告警–故障 | ≥ 200 条 | TXT/JSON | `scripts/import_v2.py` |
-| StackOverflow 精选 | ≥ 500 条 | JSON | `scripts/import_v2.py` |
-| ITIL Category 树 | 完整 P1–P4 分类 | JSON | 一次性初始化脚本 |
-| 企业内部（目标） | ≥ 100 条 | 工单/SOP | 手动 + 抽取管线 |
+
+| 数据集              | 目标量         | 格式       | 导入方式                   |
+| ---------------- | ----------- | -------- | ---------------------- |
+| GAIA 故障–根因       | ≥ 300 条     | JSONL    | `scripts/import_v2.py` |
+| LogHub 告警–故障     | ≥ 200 条     | TXT/JSON | `scripts/import_v2.py` |
+| StackOverflow 精选 | ≥ 500 条     | JSON     | `scripts/import_v2.py` |
+| ITIL Category 树  | 完整 P1–P4 分类 | JSON     | 一次性初始化脚本               |
+| 企业内部（目标）         | ≥ 100 条     | 工单/SOP   | 手动 + 抽取管线              |
+
 
 ### 8.3 导入脚本规范
 
@@ -786,38 +820,42 @@ python scripts/import_v2.py <data_file> \
 
 ## 9. 非功能性需求
 
-| 类别 | 要求 | 目标值 |
-|------|------|--------|
-| **可用性** | 容器重启后服务恢复 | ≤ 5 分钟 |
-| **问答响应** | RAG / Graph-RAG 端到端（含 LLM） | ≤ 15 秒 |
-| **图谱查询** | 单次 Gremlin 查询 | ≤ 2 秒 |
-| **相似推荐** | embedding + Qdrant 检索 | ≤ 3 秒 |
-| **抽取任务** | 单段落 LLM 抽取 | ≤ 30 秒 |
-| **安全** | 密码/密钥不硬编码入 git | 必须 |
-| **私有化** | 全程无外网依赖（LLM API 除外） | 必须 |
-| **审计** | 关键写操作有日志 | 必须 |
-| **可维护** | `docker compose logs` 可查 + 结构化 JSON 日志 | 强烈建议 |
-| **可扩展** | 新增实体类型 / 数据源不影响现有服务 | 必须（Schema 幂等脚本保证） |
+
+| 类别       | 要求                                     | 目标值               |
+| -------- | -------------------------------------- | ----------------- |
+| **可用性**  | 容器重启后服务恢复                              | ≤ 5 分钟            |
+| **问答响应** | RAG / Graph-RAG 端到端（含 LLM）             | ≤ 15 秒            |
+| **图谱查询** | 单次 Gremlin 查询                          | ≤ 2 秒             |
+| **相似推荐** | embedding + Qdrant 检索                  | ≤ 3 秒             |
+| **抽取任务** | 单段落 LLM 抽取                             | ≤ 30 秒            |
+| **安全**   | 密码/密钥不硬编码入 git                         | 必须                |
+| **私有化**  | 全程无外网依赖（LLM API 除外）                    | 必须                |
+| **审计**   | 关键写操作有日志                               | 必须                |
+| **可维护**  | `docker compose logs` 可查 + 结构化 JSON 日志 | 强烈建议              |
+| **可扩展**  | 新增实体类型 / 数据源不影响现有服务                    | 必须（Schema 幂等脚本保证） |
+
 
 ---
 
 ## 10. 交付物清单
 
-| 交付物 | 类型 | V2.0 状态 |
-|--------|------|-----------|
-| `docker-compose.yml`（含 portal V2 + extract-worker） | 配置 | ⏳ 待更新 |
-| `graph-api/`（V2.0 扩展接口） | 代码 | ⏳ 待开发 |
-| `graph-api/schema_v2.groovy` | Schema 脚本 | ⏳ 待编写 |
-| `wisops-portal/`（新增页面：抽取/看板/SOP） | 代码 | ⏳ 待开发 |
-| `scripts/import_v2.py` | 工具脚本 | ⏳ 待开发 |
-| `data/`（GAIA / LogHub / StackOverflow 预置数据） | 数据 | ⏳ 待准备 |
-| `data/itil_category.json` | 数据 | ⏳ 待准备 |
-| `.env.example`（完整版，含所有配置项） | 安全配置 | ⏳ 待更新 |
-| `README_V2.md` | 部署文档 | ⏳ 待编写 |
-| `PRD_V2.md`（本文档） | 产品文档 | ✅ 已完成 |
-| `TEST_REPORT_V2.md` | 测试报告 | ⏳ 待产出 |
-| `DATA_IMPORT_REPORT_V2.md` | 数据导入报告 | ⏳ 待产出 |
-| 演示脚本（Graph-RAG + 相似推荐 + 知识沉淀） | 文档 | ⏳ 待产出 |
+
+| 交付物                                                | 类型        | V2.0 状态 |
+| -------------------------------------------------- | --------- | ------- |
+| `docker-compose.yml`（含 portal V2 + extract-worker） | 配置        | ⏳ 待更新   |
+| `graph-api/`（V2.0 扩展接口）                            | 代码        | ⏳ 待开发   |
+| `graph-api/schema_v2.groovy`                       | Schema 脚本 | ⏳ 待编写   |
+| `wisops-portal/`（新增页面：抽取/看板/SOP）                   | 代码        | ⏳ 待开发   |
+| `scripts/import_v2.py`                             | 工具脚本      | ⏳ 待开发   |
+| `data/`（GAIA / LogHub / StackOverflow 预置数据）        | 数据        | ⏳ 待准备   |
+| `data/itil_category.json`                          | 数据        | ⏳ 待准备   |
+| `.env.example`（完整版，含所有配置项）                         | 安全配置      | ⏳ 待更新   |
+| `README_V2.md`                                     | 部署文档      | ⏳ 待编写   |
+| `PRD_V2.md`（本文档）                                   | 产品文档      | ✅ 已完成   |
+| `TEST_REPORT_V2.md`                                | 测试报告      | ⏳ 待产出   |
+| `DATA_IMPORT_REPORT_V2.md`                         | 数据导入报告    | ⏳ 待产出   |
+| 演示脚本（Graph-RAG + 相似推荐 + 知识沉淀）                      | 文档        | ⏳ 待产出   |
+
 
 ---
 
@@ -831,43 +869,49 @@ python scripts/import_v2.py <data_file> \
 
 ### V2.0-alpha（第 1–2 月）：数据与推理基础
 
-| # | 任务 | 模块 | 优先级 |
-|---|------|------|--------|
-| 1 | Schema 2.0 定稿并幂等初始化（含 V1.x 数据迁移） | SCH | P0 |
-| 2 | `import_v2.py` 开发，支持多实体类型与 data_source 标记 | DATA | P0 |
-| 3 | GAIA / LogHub / StackOverflow 数据清洗与批量导入 | DATA | P0 |
-| 4 | ITIL Category 树初始化 | DATA | P0 |
-| 5 | `/graph/context` 接口实现（Graph-RAG 上下文摘要） | GR-API | P0 |
-| 6 | `/graph/recommend` 接口实现（相似故障推荐） | GR-API | P0 |
-| 7 | Qdrant 新建 `fault_vectors` Collection，故障 embedding 批量写入 | GR-API | P0 |
-| 8 | Dify 工作流集成 `/graph/context`（HTTP 节点） | RETR | P0 |
-| 9 | `.env` 安全收口（承接 V1.x 遗留） | SEC | P0 |
+
+| #   | 任务                                                     | 模块     | 优先级 |
+| --- | ------------------------------------------------------ | ------ | --- |
+| 1   | Schema 2.0 定稿并幂等初始化（含 V1.x 数据迁移）                       | SCH    | P0  |
+| 2   | `import_v2.py` 开发，支持多实体类型与 data_source 标记              | DATA   | P0  |
+| 3   | GAIA / LogHub / StackOverflow 数据清洗与批量导入                | DATA   | P0  |
+| 4   | ITIL Category 树初始化                                     | DATA   | P0  |
+| 5   | `/graph/context` 接口实现（Graph-RAG 上下文摘要）                 | GR-API | P0  |
+| 6   | `/graph/recommend` 接口实现（相似故障推荐）                        | GR-API | P0  |
+| 7   | Qdrant 新建 `fault_vectors` Collection，故障 embedding 批量写入 | GR-API | P0  |
+| 8   | Dify 工作流集成 `/graph/context`（HTTP 节点）                   | RETR   | P0  |
+| 9   | `.env` 安全收口（承接 V1.x 遗留）                                | SEC    | P0  |
+
 
 ### V2.0-beta（第 3–4 月）：沉淀与运营
 
-| # | 任务 | 模块 | 优先级 |
-|---|------|------|--------|
-| 10 | `/extract/submit` 及 extract-worker 异步抽取服务 | EXT | P0 |
-| 11 | 审核队列接口（approve / reject） | EXT | P0 |
-| 12 | portal 知识抽取页（上传 + 任务状态 + 审核台） | PORTAL | P1 |
-| 13 | SOP 实体 + `/graph/sop` 接口 + portal SOP 管理页 | RETR/PORTAL | P1 |
-| 14 | portal 问答页 Graph-RAG 融合展示（图谱摘要 + 知识库引用） | PORTAL | P1 |
-| 15 | 手动工单沉淀（portal 表单 → Incident 写入） | EXT | P1 |
-| 16 | `/ops/stats` 接口 + portal 运营看板 v1（基础指标卡） | OPS | P1 |
-| 17 | `POST /assets/sync` 接口 + portal 资产导入（CSV） | INT | P1 |
+
+| #   | 任务                                        | 模块          | 优先级 |
+| --- | ----------------------------------------- | ----------- | --- |
+| 10  | `/extract/submit` 及 extract-worker 异步抽取服务 | EXT         | P0  |
+| 11  | 审核队列接口（approve / reject）                  | EXT         | P0  |
+| 12  | portal 知识抽取页（上传 + 任务状态 + 审核台）             | PORTAL      | P1  |
+| 13  | SOP 实体 + `/graph/sop` 接口 + portal SOP 管理页 | RETR/PORTAL | P1  |
+| 14  | portal 问答页 Graph-RAG 融合展示（图谱摘要 + 知识库引用）   | PORTAL      | P1  |
+| 15  | 手动工单沉淀（portal 表单 → Incident 写入）           | EXT         | P1  |
+| 16  | `/ops/stats` 接口 + portal 运营看板 v1（基础指标卡）   | OPS         | P1  |
+| 17  | `POST /assets/sync` 接口 + portal 资产导入（CSV） | INT         | P1  |
+
 
 ### V2.0-GA（第 5–6 月）：集成与安全收口
 
-| # | 任务 | 模块 | 优先级 |
-|---|------|------|--------|
-| 18 | `POST /alerts/ingest` Webhook 接口 + 相似推荐联动 | INT | P2 |
-| 19 | 工单系统 API 对接（定时拉取 Closed 工单） | INT | P2 |
-| 20 | 角色权限矩阵落地（portal 前端鉴权 + API 后端校验） | SEC | P1 |
-| 21 | 审计日志（关键写操作） | SEC | P1 |
-| 22 | Elasticsearch 评估与可选集成（全文检索 SOP/资产） | OPS | P2 |
-| 23 | 运营看板完整版（MTTR 趋势 / 增长曲线 / 抽取转化率） | OPS | P2 |
-| 24 | `TEST_REPORT_V2.md` 产出（覆盖全模块） | 测试 | P1 |
-| 25 | 演示脚本固化（Graph-RAG + 推荐 + 沉淀全流程） | 交付 | P1 |
+
+| #   | 任务                                        | 模块  | 优先级 |
+| --- | ----------------------------------------- | --- | --- |
+| 18  | `POST /alerts/ingest` Webhook 接口 + 相似推荐联动 | INT | P2  |
+| 19  | 工单系统 API 对接（定时拉取 Closed 工单）               | INT | P2  |
+| 20  | 角色权限矩阵落地（portal 前端鉴权 + API 后端校验）          | SEC | P1  |
+| 21  | 审计日志（关键写操作）                               | SEC | P1  |
+| 22  | Elasticsearch 评估与可选集成（全文检索 SOP/资产）        | OPS | P2  |
+| 23  | 运营看板完整版（MTTR 趋势 / 增长曲线 / 抽取转化率）           | OPS | P2  |
+| 24  | `TEST_REPORT_V2.md` 产出（覆盖全模块）             | 测试  | P1  |
+| 25  | 演示脚本固化（Graph-RAG + 推荐 + 沉淀全流程）            | 交付  | P1  |
+
 
 ---
 
@@ -875,66 +919,68 @@ python scripts/import_v2.py <data_file> \
 
 ### V2.0-alpha 验收
 
-- [ ] `schema_v2.groovy` 幂等执行成功，V1.x 数据无损，新实体类型可写入查询
-- [ ] 三源数据（GAIA / LogHub / StackOverflow）导入成功，总 Fault 节点 ≥ 1000，`data_source` 分布可查
-- [ ] Category 分类树完整，Fault 可按 category 过滤
-- [ ] `/graph/recommend` 对 5 个测试查询返回有效推荐，Top-3 人工可用率 ≥ 70%
-- [ ] Dify 工作流调通 `/graph/context`，融合问答回答中出现图谱摘要段落
+- `schema_v2.groovy` 幂等执行成功，V1.x 数据无损，新实体类型可写入查询
+- 三源数据（GAIA / LogHub / StackOverflow）导入成功，总 Fault 节点 ≥ 1000，`data_source` 分布可查
+- Category 分类树完整，Fault 可按 category 过滤
+- `/graph/recommend` 对 5 个测试查询返回有效推荐，Top-3 人工可用率 ≥ 70%
+- Dify 工作流调通 `/graph/context`，融合问答回答中出现图谱摘要段落
 
 ### V2.0-beta 验收
 
-- [ ] 上传 1 份 SOP 文档 → 抽取出候选 → approve → portal 图谱查询命中
-- [ ] 手动工单沉淀完整走通（录入 Incident + Solution + Asset 关联）
-- [ ] portal 审核台正常展示候选列表，approve/reject 操作可用
-- [ ] 运营看板展示知识覆盖率、图谱节点总量、数据源分布
+- 上传 1 份 SOP 文档 → 抽取出候选 → approve → portal 图谱查询命中
+- 手动工单沉淀完整走通（录入 Incident + Solution + Asset 关联）
+- portal 审核台正常展示候选列表，approve/reject 操作可用
+- 运营看板展示知识覆盖率、图谱节点总量、数据源分布
 
 ### V2.0-GA 验收（最终交付门槛）
 
 #### 基础设施
 
-- [ ] `docker compose --profile graph up -d --build` 所有服务均 `Up`
-- [ ] 无密码/密钥硬编码（使用 `.env` 管理）
+- `docker compose --profile graph up -d --build` 所有服务均 `Up`
+- 无密码/密钥硬编码（使用 `.env` 管理）
 
 #### 数据
 
-- [ ] 图谱 Fault 节点总数 ≥ 1000
-- [ ] Category 分类树完整
-- [ ] Dify 知识库文档片段 ≥ 500
+- 图谱 Fault 节点总数 ≥ 1000
+- Category 分类树完整
+- Dify 知识库文档片段 ≥ 500
 
 #### 智能检索
 
-- [ ] 给定 5 个预置故障问题，Graph-RAG 模式回答包含图谱摘要且带知识库引用
-- [ ] 相似故障推荐 Top-3 人工可用率 ≥ 70%（固定测试集）
+- 给定 5 个预置故障问题，Graph-RAG 模式回答包含图谱摘要且带知识库引用
+- 相似故障推荐 Top-3 人工可用率 ≥ 70%（固定测试集）
 
 #### 知识沉淀
 
-- [ ] 文档抽取管线端到端走通（提交 → 抽取 → 审核 → 写入 → 可查询）
-- [ ] 手动工单沉淀端到端走通
+- 文档抽取管线端到端走通（提交 → 抽取 → 审核 → 写入 → 可查询）
+- 手动工单沉淀端到端走通
 
 #### 运营看板
 
-- [ ] `/ops/stats` 返回知识覆盖率、节点总量、数据源分布
-- [ ] portal 看板页正常加载所有指标卡
+- `/ops/stats` 返回知识覆盖率、节点总量、数据源分布
+- portal 看板页正常加载所有指标卡
 
 #### 安全与权限
 
-- [ ] 角色权限矩阵生效（至少区分：运维工程师 vs 知识运营 vs 管理员）
-- [ ] 关键写操作有审计日志
+- 角色权限矩阵生效（至少区分：运维工程师 vs 知识运营 vs 管理员）
+- 关键写操作有审计日志
 
 ---
 
 ## 13. 风险与依赖
 
-| 风险 | 级别 | 影响 | 处理策略 |
-|------|------|------|----------|
-| 公开数据集质量参差，噪声大 | 高 | 影响推荐准确率 | 分层标记 `confidence`，检索时加权；设置导入前质量过滤规则 |
-| LLM 抽取准确率不稳定 | 高 | 大量低质候选进审核队列，运营成本高 | Prompt 迭代优化；设置 confidence 阈值过滤；审核台批量操作降低成本 |
-| HugeGraph Schema 迁移风险 | 高 | 已有 V1.x 数据受影响 | Schema 脚本全部 `ifNotExist()`，幂等执行；迁移前备份数据卷 |
-| Docker Hub 网络问题 | 中 | 影响镜像拉取与构建 | 配置镜像加速；离线构建 `docker save/load` |
-| 外部 LLM API 不稳定 | 中 | 抽取任务超时/失败 | 抽取任务重试机制；降级策略（规则抽取兜底） |
-| 工单/CMDB 系统对接复杂 | 中 | INT 模块延期 | 先做 CSV 导入手动模式，API 对接作 P2 |
-| 向量 embedding 一致性 | 中 | 相似推荐与 RAG 使用不同 embedding 导致语义空间割裂 | 统一使用 Dify 的 embedding 接口，或指定同一外部模型 |
-| 权限体系与 Dify 认证割裂 | 低 | 用户需要两套账号 | V2.0 先以 Nginx Basic Auth 统一入口，V3.0 再做 SSO |
+
+| 风险                    | 级别  | 影响                                | 处理策略                                       |
+| --------------------- | --- | --------------------------------- | ------------------------------------------ |
+| 公开数据集质量参差，噪声大         | 高   | 影响推荐准确率                           | 分层标记 `confidence`，检索时加权；设置导入前质量过滤规则        |
+| LLM 抽取准确率不稳定          | 高   | 大量低质候选进审核队列，运营成本高                 | Prompt 迭代优化；设置 confidence 阈值过滤；审核台批量操作降低成本 |
+| HugeGraph Schema 迁移风险 | 高   | 已有 V1.x 数据受影响                     | Schema 脚本全部 `ifNotExist()`，幂等执行；迁移前备份数据卷   |
+| Docker Hub 网络问题       | 中   | 影响镜像拉取与构建                         | 配置镜像加速；离线构建 `docker save/load`             |
+| 外部 LLM API 不稳定        | 中   | 抽取任务超时/失败                         | 抽取任务重试机制；降级策略（规则抽取兜底）                      |
+| 工单/CMDB 系统对接复杂        | 中   | INT 模块延期                          | 先做 CSV 导入手动模式，API 对接作 P2                   |
+| 向量 embedding 一致性      | 中   | 相似推荐与 RAG 使用不同 embedding 导致语义空间割裂 | 统一使用 Dify 的 embedding 接口，或指定同一外部模型         |
+| 权限体系与 Dify 认证割裂       | 低   | 用户需要两套账号                          | V2.0 先以 Nginx Basic Auth 统一入口，V3.0 再做 SSO  |
+
 
 ---
 
@@ -942,3 +988,4 @@ python scripts/import_v2.py <data_file> \
 
 > 对应 V1.0 PRD：`PRD.md`  
 > 当前版本：V2.0 PRD v1.0（2026-04-28）
+

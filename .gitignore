@@ -6,9 +6,9 @@ graph-api/.venv/
 *.egg-info/
 
 # 前端依赖与构建产物
-graph-ui/node_modules/
-graph-ui/dist/
-graph-ui/.vite/
+**/node_modules/
+**/dist/
+**/.vite/
 
 # 环境变量与密钥（绝对不能提交）
 .env
@@ -23,6 +23,10 @@ data/api_storage/
 
 # 外部数据集（按需下载，不入库）
 data/gaia/
+# Stack Exchange 全量 Posts.xml / 压缩包（样例 XML 与 README 可入库）
+data/stackoverflow/Posts.xml
+data/stackoverflow/*.7z
+data/stackoverflow/*.zip
 
 # 临时调研脚本
 scripts/_*.py

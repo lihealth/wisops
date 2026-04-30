@@ -5,7 +5,7 @@
 ## 自测记录（合入前请填写）
 
 - [ ] 已按 `docs/TESTING.md` 完成与本改动相关的**最小测试包**
-- [ ] `Invoke-RestMethod http://localhost:8002/health`（或经 `8090/graph-api/health`）正常（若涉及 graph-api / 部署）
+- [ ] `Invoke-RestMethod http://localhost:8021/health`（或经 `8091/graph-api/health`）正常（若涉及 graph-api / 部署）
 - [ ] `wisops-portal`：`npm run build` 通过（若涉及前端）
 - [ ] 数据/导入：小样本或统计核对通过（若涉及脚本或图谱数据）
 

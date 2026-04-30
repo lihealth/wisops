@@ -156,8 +156,8 @@ def main() -> None:
     parser.add_argument("input_file", help="Path to input file (.txt/.csv/.json)")
     parser.add_argument(
         "--api-url",
-        default="http://localhost:8002/graph/add",
-        help="graph-api add endpoint (default: http://localhost:8002/graph/add)",
+        default="http://localhost:8021/graph/add",
+        help="graph-api add endpoint (default: http://localhost:8021/graph/add)",
     )
     parser.add_argument("--timeout", type=int, default=10, help="HTTP timeout in seconds")
     parser.add_argument("--dry-run", action="store_true", help="Validate and print records without importing")

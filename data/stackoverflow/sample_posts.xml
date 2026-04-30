@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<posts>
+  <row Id="100" PostTypeId="1" AcceptedAnswerId="101" CreationDate="2020-01-01T00:00:00.0" Score="4" Title="Why is my cron job not running every hour?" Tags="&lt;linux&gt;&lt;cron&gt;&lt;bash&gt;" AnswerCount="2" />
+  <row Id="101" PostTypeId="2" ParentId="100" CreationDate="2020-01-01T01:00:00.0" Score="6" Body="&lt;p&gt;Check that the cron daemon is running and that your user crontab uses five fields including minute.&lt;/p&gt;&lt;p&gt;Use &lt;code&gt;grep CRON /var/log/syslog&lt;/code&gt; for Debian-based systems.&lt;/p&gt;" />
+  <row Id="102" PostTypeId="1" AcceptedAnswerId="103" CreationDate="2020-02-01T00:00:00.0" Score="2" Title="Nginx returns 502 after config change" Tags="&lt;nginx&gt;&lt;reverse-proxy&gt;" AnswerCount="1" />
+  <row Id="103" PostTypeId="2" ParentId="102" CreationDate="2020-02-01T01:00:00.0" Score="3" Body="&lt;p&gt;Reload nginx after syntax check: &lt;code&gt;nginx -t &amp;&amp; systemctl reload nginx&lt;/code&gt;. Verify upstream is reachable.&lt;/p&gt;" />
+</posts>

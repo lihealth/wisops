@@ -7,6 +7,65 @@
 
 ## [Unreleased]
 
+---
+
+## [v1.9.0] — 2026-04-30
+
+### 新增
+
+- portal：资产管理页 **`/assets`**（侧栏「资产管理」），资产表格分页、`GET /assets?q=` 筛选、右侧详情与 `GET /alerts?asset_id=` 关联告警列表
+- graph-api：`GET /assets` 支持可选查询参数 **`q`**（子串匹配 `asset_id` / `name` / `ip`，有 `q` 时全量拉取 Asset 后内存分页）
+- graph-api：抽取审核 **`POST /extract/queue/batch-approve`**、**`POST /extract/queue/batch-reject`**（请求体 `item_ids`，单次最多 50 条，逐条返回成功/失败明细）
+- portal：知识抽取「审核队列」支持 **全选 / 多选、批量通过、批量拒绝**
+- 数据：`scripts/import_stackoverflow.py` 支持 Stack Exchange 官方 **`Posts.xml`** 两阶段解析、HTML 清洗、运维向标签过滤；说明与样例见 `data/stackoverflow/README.md`
+- **SEC**：graph-api 新增 **`X-API-Key` HTTP 中间件**（`GRAPH_API_KEY` 环境变量；未配置跳过校验；写操作 POST/PUT/DELETE 鉴权，读操作及白名单路径豁免）
+- **SEC**：graph-api 新增**写操作审计日志**（`audit_middleware`，滚动内存存储）+ **`GET /admin/audit-log`** 查询接口（支持 `method` / `path_kw` 过滤）
+- **SEC**：portal 新增**三档角色系统**（`admin` / `engineer` / `readonly`，localStorage 持久化）；左下角角色切换器；导航/路由/按钮按 `can()` 条件渲染
+- **SEC**：新增 **`.env.example`** 完整配置示例；`docker-compose.yml` 注入 `GRAPH_API_KEY` / `AUDIT_MAX_ENTRIES`
+- **文档**：新增 **`docs/TEST_REPORT_V2.md`**（75 条验收用例，Beta 全部通过）
+- **文档**：新增 **`docs/DATA_IMPORT_REPORT_V2.md`**（图谱数据量快照、4 类来源说明、全量恢复命令）
+- graph-api：新增 **`GET /incidents/{incident_id}`** 工单详情（含 Fault / Solution / Asset 关联列表）
+- graph-api：新增 **`GET /graph/solutions`** 方案名称列表（供前端补全）
+- graph-api：**`GET /graph/faults`** 返回格式统一为 `[{name}]` 对象数组，支持 `page_size`
+- portal：新增 **`/incidents` 工单沉淀页**（列表 + 详情 + 录入表单，含 Fault/Solution/Asset 关联补全）
+- portal：首页新增「工单沉淀」卡片；**首页布局全面重设计**（品牌名渐变大字、特性 Pill 栏、3 列卡片网格、彩色顶栏卡片样式）
+- 图谱可视化：**`/graph/visualize` 扩展**返回 Alert（TRIGGERS）、Category（CLASSIFIED_AS）、邻近 Fault（同类）；前端替换为**可拖拽多类型节点图**（分圈初始布局 + 鼠标拖动任意节点）
+
+### 修复
+
+- graph-api：`GET /incidents` 与 `GET /alerts` 排序语法 `decr` → `Order.desc`，修复 HTTP 502 / HugeGraph 400 错误
+
+### 变更
+
+- 宿主机端口：**graph-api** `8002` → **`8021`**，**portal** `8090` → **`8091`**；相关文档全部同步
+- graph-api 版本号 `1.8.0` → `1.9.0`；portal `package.json` `1.8.0` → `1.9.0`
+
+## [v1.8.0] — 2026-04-29
+
+> **里程碑**：平台版本 **V1.8**（抽取追溯闭环、TRIGGERS 审计增强）
+
+### 新增
+
+- graph-api：`GET /admin/triggers/audit`，支持按 `method` / `rule_name` / `min_confidence` 分页审计 `TRIGGERS` 边
+- graph-api：`TRIGGERS` 边属性增强，写入并回填 `confidence`、`method`、`rule_name`
+- graph-api：抽取审核后新增文档追溯索引 `GET /extract/doc-links`
+- graph-api：新增 `GET /graph/document-trace?document_id=...`，按 Dify `document_id` 反查 `Solution/Fault` 图谱关联
+- graph-api：`approve` 后自动建立 `Solution -> DOCUMENTED_IN -> SOP(dify-doc:document_id)` 映射，并在边上写 `chunk_ref=document_id`
+- portal：知识抽取页新增「文档追溯」Tab，支持 `document_id/job_id` 过滤与一键复制
+- portal：图谱管理页新增「文档追溯」Tab，支持按 `document_id` 反查图谱关系
+
+### 修复
+
+- TRIGGERS 规则匹配可解释性不足问题（补充规则命中审计字段）
+- 抽取审核后「知识库文档 ↔ 图谱关系」追溯链路缺失问题
+- 图谱 Schema 启动时序问题：`startup()` 中 Schema 初始化若失败会被静默跳过，导致 `Undefined vertex label: 'Fault'`；在 `_all_fault_names_ordered()` 首次调用前幂等执行 `ensure_schema_v2()`，HugeGraph 晚于 graph-api 就绪时仍可自愈
+
+### 变更
+
+- 统一产品版本到 **V1.8 / 1.8.0**（`graph-api` FastAPI、`wisops-portal`、首页/侧栏徽章、README）
+- `docs/TESTING.md` 新增 §6「图谱数据丢失：排查与全量恢复」
+- `README.md` 新增「图谱数据丢失快速恢复」章节
+
 ## [v1.7.0] — 2026-04-29
 
 > **里程碑**：平台版本 **V1.7**（门户与图谱体验、数据全量一致性）
@@ -110,7 +169,8 @@
 
 ## [v1.5.0] — 2026-04-28
 
-> **里程碑**：统一网关 + 自建前端门户
+> **里程碑**：统一网关 + 自建前端门户  
+> **当前仓库**：统一门户宿主机端口已改为 **`:8091`**（见 `[Unreleased]` 与 `docker-compose.yml`）；本节下列 `:8090` 为 v1.5.0 当时记录，勿当作现网默认端口。
 
 ### 新增
 

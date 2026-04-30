@@ -63,15 +63,15 @@ services:
       - VECTOR_STORE=qdrant
       - QDRANT_URL=http://qdrant:6333
       - SECRET_KEY=${SECRET_KEY:-wisops-secret-key-change-in-production}
-      - CONSOLE_WEB_URL=${CONSOLE_API_URL:-http://localhost:8090}
-      - APP_WEB_URL=${APP_API_URL:-http://localhost:8090}
+      - CONSOLE_WEB_URL=${CONSOLE_API_URL:-http://localhost:8091}
+      - APP_WEB_URL=${APP_API_URL:-http://localhost:8091}
       - MIGRATION_ENABLED=true
       - CELERY_ALWAYS_EAGER=True
       - CELERY_TASK_EAGER_PROPAGATES=True
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - CONSOLE_CORS_ALLOW_ORIGINS=http://localhost:8090,http://127.0.0.1:8090,http://localhost:8281,http://127.0.0.1:8281
-      - WEB_API_CORS_ALLOW_ORIGINS=http://localhost:8090,http://127.0.0.1:8090,http://localhost:8281,http://127.0.0.1:8281
+      - CONSOLE_CORS_ALLOW_ORIGINS=http://localhost:8091,http://127.0.0.1:8091,http://localhost:8281,http://127.0.0.1:8281
+      - WEB_API_CORS_ALLOW_ORIGINS=http://localhost:8091,http://127.0.0.1:8091,http://localhost:8281,http://127.0.0.1:8281
     depends_on:
       - postgres
       - redis
@@ -143,14 +143,19 @@ services:
       - LLM_API_URL=${LLM_API_URL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_CHAT_MODEL=${LLM_CHAT_MODEL:-gpt-4o-mini}
+      - DIFY_DATASET_API_URL=${DIFY_DATASET_API_URL:-}
+      - DIFY_DATASET_ID=${DIFY_DATASET_ID:-}
+      - DIFY_DATASET_API_KEY=${DIFY_DATASET_API_KEY:-}
       - QDRANT_URL=http://qdrant:6333
       - QDRANT_COLLECTION=${QDRANT_COLLECTION:-fault_vectors}
       - EMBEDDING_API_URL=${EMBEDDING_API_URL:-}
       - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
       - EMBEDDING_DIM=${EMBEDDING_DIM:-1536}
+      - GRAPH_API_KEY=${GRAPH_API_KEY:-}
+      - AUDIT_MAX_ENTRIES=${AUDIT_MAX_ENTRIES:-2000}
     ports:
-      - "8002:8000"
+      - "8021:8000"
     depends_on:
       - hugegraph
       - qdrant
@@ -176,7 +181,7 @@ services:
     profiles:
       - graph
     ports:
-      - "8090:80"
+      - "8091:80"
     depends_on:
       - api
       - graph-api

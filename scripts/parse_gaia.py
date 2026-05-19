@@ -4,7 +4,7 @@ WisOps V2.0 - GAIA Dataset Parser & Importer
 Source: https://github.com/CloudWise-OpenSource/GAIA-DataSet
 
 Usage:
-  python scripts/parse_gaia.py --api-url http://localhost:8002
+  python scripts/parse_gaia.py --api-url http://localhost:8021
 
 Imports:
   data/gaia/run.zip  -> Asset nodes (MicroSS services) + Alert nodes
@@ -24,7 +24,7 @@ ROOT    = Path(__file__).parent.parent
 GAIA    = ROOT / "data" / "gaia"
 RUN_ZIP = GAIA / "run.zip"
 LOG_ZIP = GAIA / "log.zip"
-API_URL = "http://localhost:8002"
+API_URL = "http://localhost:8021"
 SOURCE  = "gaia"
 BATCH   = "gaia-2026-04-28"
 
@@ -489,7 +489,7 @@ def import_faults(pairs: List[dict]) -> int:
 
 def main():
     parser = argparse.ArgumentParser(description="WisOps GAIA Importer")
-    parser.add_argument("--api-url",      default="http://localhost:8002")
+    parser.add_argument("--api-url",      default="http://localhost:8021")
     parser.add_argument("--skip-assets",  action="store_true")
     parser.add_argument("--skip-alerts",  action="store_true")
     parser.add_argument("--skip-faults",  action="store_true")

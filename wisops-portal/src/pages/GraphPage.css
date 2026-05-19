@@ -128,7 +128,7 @@
   animation: graphReveal 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 .visual-spoke {
-  cursor: default;
+  cursor: pointer;
   transition: filter 0.2s ease;
 }
 .visual-spoke--hot .solution-node {
@@ -145,7 +145,7 @@
   stroke: #64748b;
 }
 .visual-fault-hub {
-  cursor: default;
+  cursor: pointer;
 }
 .visual-fault-hub--hot .fault-node {
   stroke: #a5b4fc;
@@ -179,16 +179,34 @@
   dominant-baseline: middle;
 }
 .fault-node {
-  fill: url(#faultGrad);
+  fill: #6366f1;
   stroke: #818cf8;
   stroke-width: 2;
-  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease, filter 0.2s;
 }
 .solution-node {
-  fill: url(#solGrad);
+  fill: #14b8a6;
   stroke: #2dd4bf;
   stroke-width: 2;
-  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease, filter 0.2s;
+}
+.alert-node {
+  fill: #f59e0b;
+  stroke: #fbbf24;
+  stroke-width: 2;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease, filter 0.2s;
+}
+.category-node {
+  fill: #8b5cf6;
+  stroke: #a78bfa;
+  stroke-width: 2;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease, filter 0.2s;
+}
+.incident-node {
+  fill: #ef4444;
+  stroke: #f87171;
+  stroke-width: 2;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease, filter 0.2s;
 }
 .node-label {
   fill: #fff;
@@ -233,6 +251,37 @@
   marker-end: none;
 }
 
+/* ── 可拖拽图谱 ── */
+.graph-canvas--draggable {
+  user-select: none;
+}
+.graph-canvas--draggable:active {
+  cursor: crosshair;
+}
+.visual-node-group {
+  transition: filter 0.15s;
+}
+.visual-node-group--hot circle {
+  stroke-width: 3.5;
+  filter: brightness(1.15);
+}
+.node-label--xs {
+  font-size: 8px;
+}
+.edge-label-inline {
+  fill: #94a3b8;
+  font-size: 10px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+.visual-spoke--hot .edge-label-inline {
+  fill: #e2e8f0;
+}
+/* Legend dots for new types */
+.alert-node.legend-dot    { fill: #f59e0b; stroke: #fbbf24; }
+.category-node.legend-dot { fill: #8b5cf6; stroke: #a78bfa; }
+
 /* 故障列表表格 */
 .graph-body .fault-table-panel {
   max-width: none;
@@ -250,6 +299,17 @@
   align-items: center;
   gap: 0.75rem 1rem;
   margin-bottom: 0.75rem;
+}
+.triggers-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+.triggers-rule-search {
+  min-width: 220px;
+  max-width: 340px;
 }
 .fault-table-search {
   flex: 1;

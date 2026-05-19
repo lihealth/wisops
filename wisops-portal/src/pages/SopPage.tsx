@@ -123,9 +123,9 @@ function SopForm({ initial, onSaved }: { initial: SOP | null; onSaved: () => voi
   const [error, setError]       = useState('')
 
   useEffect(() => {
-    fetch(`${GRAPH_BASE}/graph/faults`)
+    fetch(`${GRAPH_BASE}/graph/faults?page_size=500`)
       .then((r) => r.json())
-      .then((d) => setFaults(d.faults ?? []))
+      .then((d) => setFaults((d.faults ?? []).map((f: string | { name: string }) => typeof f === 'string' ? f : f.name)))
       .catch(() => {})
   }, [])
 

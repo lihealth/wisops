@@ -49,14 +49,14 @@ Write-Host "=== 服务已启动 ===" -ForegroundColor Green
 if ($Graph) {
     Write-Host ""
     Write-Host "─── WisOps Portal V2.0（推荐入口） ───────────────────────" -ForegroundColor Cyan
-    Write-Host "  统一门户     : http://localhost:8090         (首页 / AI问答 / 图谱 / 抽取 / 看板)" -ForegroundColor Yellow
-    Write-Host "  Graph API    : http://localhost:8090/graph-api/docs  (Swagger 文档)" -ForegroundColor Yellow
+    Write-Host "  统一门户     : http://localhost:8091         (首页 / AI问答 / 图谱 / 抽取 / 看板)" -ForegroundColor Yellow
+    Write-Host "  Graph API    : http://localhost:8091/graph-api/docs  (Swagger 文档)" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "─── 独立调试端口 ──────────────────────────────────────────" -ForegroundColor DarkGray
     Write-Host "  Dify 控制台  : http://localhost:8281" -ForegroundColor DarkGray
     Write-Host "  Dify API     : http://localhost:5002" -ForegroundColor DarkGray
     Write-Host "  HugeGraph    : http://localhost:8081" -ForegroundColor DarkGray
-    Write-Host "  Graph API    : http://localhost:8002/docs" -ForegroundColor DarkGray
+    Write-Host "  Graph API    : http://localhost:8021/docs" -ForegroundColor DarkGray
 } else {
     Write-Host "  Dify 控制台  : http://localhost:8281" -ForegroundColor Yellow
     Write-Host "  Dify API     : http://localhost:5002" -ForegroundColor Yellow

@@ -11,7 +11,7 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/dify-api/, ''),
       },
       '/graph-api': {
-        target: 'http://localhost:8002',
+        target: 'http://localhost:8021',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/graph-api/, ''),
       },

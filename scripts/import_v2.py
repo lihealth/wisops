@@ -208,7 +208,7 @@ IMPORT_FN = {
 def main() -> None:
     parser = argparse.ArgumentParser(description="WisOps V2.0 数据导入脚本")
     parser.add_argument("file",                  help="数据文件路径（json/jsonl/csv/txt）")
-    parser.add_argument("--api-url",             default="http://localhost:8002", help="graph-api 基础 URL")
+    parser.add_argument("--api-url",             default="http://localhost:8021", help="graph-api 基础 URL")
     parser.add_argument("--entity-type",         default="Fault",
                         choices=["Fault", "Asset", "Category", "Incident"],
                         help="目标实体类型，默认 Fault")

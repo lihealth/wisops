@@ -2,10 +2,13 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import './ChatPage.css'
 
 interface GraphContext {
-  fault_name: string
+  /** 兼容旧版详情面板渲染 */
+  fault_name?: string
   summary_text: string
-  solutions: Array<{ name: string; description: string; data_source: string }>
-  sops: Array<{ title: string; version: string }>
+  solutions?: Array<{ name: string; description: string; data_source: string }>
+  sops?: Array<{ title: string; version: string }>
+  /** /chat/context 返回的 Dify inputs 对象 */
+  dify_inputs?: Record<string, string>
 }
 
 interface Message {
@@ -27,22 +30,34 @@ type ChatMode = 'rag' | 'graph' | 'auto'
 function uid() { return Math.random().toString(36).slice(2) }
 function loadKey() { return DIFY_API_KEY_ENV || localStorage.getItem(LS_KEY) || '' }
 
-async function fetchGraphContext(query: string): Promise<{ ctx: GraphContext | null; recs: Message['recommendations'] }> {
+/**
+ * 统一调用 /chat/context 获取图谱上下文，返回：
+ *  - ctx       : 可渲染到助手气泡的 GraphContext
+ *  - recs      : 推荐列表（供参考面板渲染）
+ *  - difyInputs: 直接注入 Dify inputs 的 dict
+ */
+async function fetchGraphContext(query: string): Promise<{
+  ctx: GraphContext | null
+  recs: Message['recommendations']
+  difyInputs: Record<string, string>
+}> {
   try {
-    const recRes = await fetch(`${GRAPH_BASE}/graph/recommend`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, top_k: 5 }),
-    })
-    const rec = recRes.ok ? await recRes.json() : null
-    const recs = rec?.recommendations?.length > 0 ? rec.recommendations : undefined
-    const faultForCtx = (recs?.[0]?.fault_name?.trim() || query).trim()
-    const ctxRes = await fetch(`${GRAPH_BASE}/graph/context?fault_name=${encodeURIComponent(faultForCtx)}`)
-    const raw = ctxRes.ok ? await ctxRes.json() : null
-    const ctx = raw?.solutions?.length > 0 ? raw : null
-    return { ctx, recs }
+    const res = await fetch(`${GRAPH_BASE}/chat/context?q=${encodeURIComponent(query)}&top_k=5`)
+    if (!res.ok) return { ctx: null, recs: undefined, difyInputs: {} }
+    const data = await res.json()
+
+    const recs: Message['recommendations'] = data.recommendations?.length > 0
+      ? data.recommendations
+      : undefined
+
+    const summaryText: string = data.summary_text ?? ''
+    const ctx: GraphContext | null = summaryText
+      ? { summary_text: summaryText, dify_inputs: data.inputs }
+      : null
+
+    return { ctx, recs, difyInputs: data.inputs ?? {} }
   } catch {
-    return { ctx: null, recs: undefined }
+    return { ctx: null, recs: undefined, difyInputs: {} }
   }
 }
 
@@ -110,10 +125,12 @@ export default function ChatPage() {
     // Graph-RAG 上下文预取（auto / graph 模式）
     let graphCtx: GraphContext | null = null
     let recs: Message['recommendations'] = undefined
+    let difyInputs: Record<string, string> = {}
     if (mode === 'auto' || mode === 'graph') {
       const result = await fetchGraphContext(text)
       graphCtx = result.ctx
       recs = result.recs
+      difyInputs = result.difyInputs
       if (graphCtx || recs) {
         setMessages((prev) => prev.map((m) =>
           m.id === asstId ? { ...m, graphCtx, recommendations: recs } : m
@@ -138,11 +155,7 @@ export default function ChatPage() {
     abortRef.current = new AbortController()
 
     try {
-      // 若有图谱上下文，拼入 query 作为 Graph-RAG 增强
-      const enhancedQuery = graphCtx
-        ? `${text}\n\n---\n${graphCtx.summary_text}`
-        : text
-
+      // 图谱上下文通过 inputs.graph_context 注入 Dify（结构化），不再拼入 query
       const res = await fetch(`${DIFY_BASE}/v1/chat-messages`, {
         method: 'POST',
         headers: {
@@ -150,8 +163,8 @@ export default function ChatPage() {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          inputs: {},
-          query: enhancedQuery,
+          inputs: difyInputs,          // { graph_context: "...", query: "..." }
+          query: text,                 // 用户原始提问，不再附加上下文字符串
           response_mode: 'streaming',
           conversation_id: convId ?? '',
           user: 'wisops-portal',
@@ -332,12 +345,12 @@ function GraphContextCard({ ctx }: { ctx: GraphContext }) {
       <div className="ctx-header" onClick={() => setOpen((v) => !v)}>
         <span className="ctx-badge">🕸️ 图谱知识</span>
         <span className="ctx-fault">{ctx.fault_name}</span>
-        <span className="ctx-count">{ctx.solutions.length} 条方案</span>
+        <span className="ctx-count">{ctx.solutions?.length ?? 0} 条方案</span>
         <span className="ctx-toggle">{open ? '▲' : '▼'}</span>
       </div>
       {open && (
         <div className="ctx-body">
-          {ctx.solutions.slice(0, 3).map((s, i) => (
+          {(ctx.solutions ?? []).slice(0, 3).map((s, i) => (
             <div key={i} className="ctx-sol">
               <span className="ctx-sol-num">{i + 1}</span>
               <div>
@@ -347,8 +360,8 @@ function GraphContextCard({ ctx }: { ctx: GraphContext }) {
               <span className="ctx-src">{s.data_source}</span>
             </div>
           ))}
-          {ctx.sops.length > 0 && (
-            <div className="ctx-sop">📋 关联 SOP：{ctx.sops[0].title}（v{ctx.sops[0].version}）</div>
+          {(ctx.sops?.length ?? 0) > 0 && (
+            <div className="ctx-sop">📋 关联 SOP：{ctx.sops![0].title}（v{ctx.sops![0].version}）</div>
           )}
         </div>
       )}

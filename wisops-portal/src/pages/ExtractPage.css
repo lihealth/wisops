@@ -54,6 +54,7 @@
   font-size: 0.875rem; transition: all 0.15s; white-space: nowrap;
 }
 .btn-outline:hover { border-color: #6366f1; color: #e2e8f0; }
+.btn-sm { padding: 0.28rem 0.65rem; font-size: 0.78rem; }
 
 .tip-box {
   background: #1a1d2e; border: 1px solid #2d3148; border-radius: 10px;
@@ -88,6 +89,30 @@
 .badge-red   { background: #450a0a; color: #f87171; }
 
 /* 审核队列 */
+.queue-batch-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1rem;
+  padding: 0.75rem 1rem; background: #1a1d2e; border: 1px solid #2d3148; border-radius: 8px;
+}
+.queue-check-label {
+  display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer;
+  font-size: 0.82rem; color: #94a3b8; user-select: none;
+}
+.queue-check-label input { accent-color: #6366f1; }
+.queue-check-inline { margin-right: 0.25rem; }
+.queue-batch-hint { font-size: 0.8rem; color: #64748b; }
+.btn-batch-approve {
+  padding: 0.35rem 0.85rem; background: #14532d; color: #4ade80;
+  border: 1px solid #166534; border-radius: 7px; cursor: pointer; font-size: 0.82rem;
+}
+.btn-batch-approve:hover:not(:disabled) { background: #166534; }
+.btn-batch-approve:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-batch-reject {
+  padding: 0.35rem 0.85rem; background: #450a0a; color: #f87171;
+  border: 1px solid #7f1d1d; border-radius: 7px; cursor: pointer; font-size: 0.82rem;
+}
+.btn-batch-reject:hover:not(:disabled) { background: #7f1d1d; }
+.btn-batch-reject:disabled { opacity: 0.45; cursor: not-allowed; }
+
 .queue-list { display: flex; flex-direction: column; gap: 0.875rem; }
 .queue-card {
   background: #1e2130; border: 1px solid #2d3148; border-radius: 10px;
@@ -126,3 +151,5 @@
 }
 .btn-reject:hover:not(:disabled) { background: #7f1d1d; }
 .btn-approve:disabled, .btn-reject:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.doc-trace-panel { max-width: 100%; }

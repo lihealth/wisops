@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useRole } from '../RoleContext'
 import './IncidentPage.css'
 
 const GRAPH_BASE = '/graph-api'
@@ -204,6 +205,7 @@ interface FormState {
 }
 
 function IncidentForm({ onCreated }: { onCreated: () => void }) {
+  const { writeHeaders } = useRole()
   const [form, setForm] = useState<FormState>({
     incident_id: uid(),
     title: '',
@@ -251,7 +253,7 @@ function IncidentForm({ onCreated }: { onCreated: () => void }) {
 
       const r = await fetch(`${GRAPH_BASE}/incidents`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: writeHeaders(),
         body: JSON.stringify(payload),
       })
       if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail ?? `HTTP ${r.status}`) }

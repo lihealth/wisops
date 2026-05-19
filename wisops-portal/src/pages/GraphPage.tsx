@@ -830,6 +830,7 @@ function QueryPanel() {
 }
 
 function AddPanel() {
+  const { writeHeaders } = useRole()
   const [fault, setFault]       = useState('')
   const [solName, setSolName]   = useState('')
   const [solDesc, setSolDesc]   = useState('')
@@ -843,7 +844,7 @@ function AddPanel() {
     try {
       const res = await fetch(`${GRAPH_BASE}/graph/add`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: writeHeaders(),
         body: JSON.stringify({ fault_name: fault, solution_name: solName, solution_description: solDesc }),
       })
       if (!res.ok) {

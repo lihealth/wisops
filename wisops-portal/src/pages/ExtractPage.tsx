@@ -79,6 +79,7 @@ export default function ExtractPage() {
 }
 
 function SubmitPanel({ onSubmitted }: { onSubmitted: () => void }) {
+  const { writeHeaders } = useRole()
   const [text, setText]           = useState('')
   const [sourceHint, setSource]   = useState('')
   const [loading, setLoading]     = useState(false)
@@ -101,7 +102,7 @@ function SubmitPanel({ onSubmitted }: { onSubmitted: () => void }) {
     try {
       const resp = await fetch(`${GRAPH_BASE}/extract/submit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: writeHeaders(),
         body: JSON.stringify({ text, source_hint: sourceHint || '手动粘贴' }),
       })
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
@@ -228,7 +229,7 @@ function JobsPanel({ onGoQueue }: { onGoQueue: () => void }) {
 }
 
 function QueuePanel({ onApproved }: { onApproved: (r: ApproveResult) => void }) {
-  const { can } = useRole()
+  const { can, writeHeaders } = useRole()
   const canApprove = can('approve_extract')
   const [items, setItems]     = useState<QueueItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -273,7 +274,7 @@ function QueuePanel({ onApproved }: { onApproved: (r: ApproveResult) => void }) 
     setOp(id)
     setBatchNotice(null)
     try {
-      const resp = await fetch(`${GRAPH_BASE}/extract/queue/${id}/${action}`, { method: 'POST' })
+      const resp = await fetch(`${GRAPH_BASE}/extract/queue/${id}/${action}`, { method: 'POST', headers: writeHeaders() })
       if (action === 'approve' && resp.ok) {
         const data = await resp.json()
         onApproved(data as ApproveResult)
@@ -296,7 +297,7 @@ function QueuePanel({ onApproved }: { onApproved: (r: ApproveResult) => void }) 
     try {
       const resp = await fetch(`${GRAPH_BASE}/extract/queue/${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: writeHeaders(),
         body: JSON.stringify({ item_ids: ids }),
       })
       let data: { succeeded?: number; failed?: number; detail?: string; message?: string } = {}

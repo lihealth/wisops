@@ -1442,6 +1442,78 @@ def recommend_faults(payload: RecommendRequest) -> Dict[str, Any]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Graph-RAG 上下文接口
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.get("/chat/context")
+def chat_context(q: str, top_k: int = 3) -> Dict[str, Any]:
+    """
+    为 AI 问答注入图谱上下文（Graph-RAG）。
+
+    前端直接将返回值中的 `inputs` 字段传入 Dify chat-messages 的 `inputs` 参数，
+    无需自行拼接 Prompt；Dify 工作流从 {{graph_context}} 变量中读取结构化知识。
+
+    返回字段：
+    - method       : 检索方式（vector / keyword / none）
+    - inputs       : 可直接注入 Dify inputs 的 dict，包含 graph_context 和 query
+    - summary_text : 纯文本摘要（备用，兼容旧版前端拼接模式）
+    - recommendations : 原始推荐列表（供前端渲染参考面板）
+    """
+    if not q.strip():
+        return {
+            "method": "none",
+            "inputs": {"graph_context": "", "query": q},
+            "summary_text": "",
+            "recommendations": [],
+        }
+
+    query_lower = q.lower()
+    all_faults: List[str] = _all_fault_names_ordered()
+
+    method = "keyword"
+    top: List[Dict[str, Any]] = []
+
+    if _vec.embedding_configured() and _vec.qdrant_collection_point_count() > 0:
+        vec_hits = _vec.search_similar_faults(q, top_k)
+        if vec_hits:
+            method = "vector"
+            top = [{"fault_name": fn, "similarity": round(sc, 4)} for fn, sc in vec_hits]
+
+    if not top:
+        method = "keyword" if method == "keyword" else "keyword_fallback"
+        kw = _keyword_fault_scores(query_lower, all_faults)
+        top = kw[:top_k]
+
+    recommendations = _recommendations_payload(top)
+
+    # 生成 Dify inputs.graph_context 字符串（结构化摘要，Jinja 友好）
+    lines: List[str] = []
+    for i, rec in enumerate(recommendations, 1):
+        sols = "; ".join(
+            f"{s.get('name','?')}（{s.get('description','')[:60]}）"
+            for s in rec.get("solutions", [])
+        ) or "暂无方案"
+        sops = "、".join(rec.get("sop_titles", [])) or "暂无 SOP"
+        lines.append(
+            f"{i}. 故障：{rec['fault_name']}（相似度 {rec['similarity']}）\n"
+            f"   方案：{sols}\n"
+            f"   SOP：{sops}"
+        )
+
+    graph_context = (
+        f"【图谱知识（Top-{len(recommendations)}，{method} 检索）】\n" + "\n".join(lines)
+        if lines else ""
+    )
+
+    return {
+        "method": method,
+        "inputs": {"graph_context": graph_context, "query": q},
+        "summary_text": graph_context,
+        "recommendations": recommendations,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # V2.0 — SOP 管理
 # ──────────────────────────────────────────────────────────────────────────────
 

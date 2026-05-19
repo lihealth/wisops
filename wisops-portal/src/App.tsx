@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom'
 import { RoleProvider, useRole, type Role } from './RoleContext'
 import HomePage      from './pages/HomePage'
@@ -14,7 +15,6 @@ interface NavItem {
   to: string
   icon: string
   label: string
-  /** 需要拥有此操作权限才在侧栏显示，不填则始终显示 */
   requireAction?: import('./RoleContext').Action
 }
 
@@ -23,7 +23,7 @@ const NAV: NavItem[] = [
   { to: '/chat',      icon: '🤖', label: 'AI 问答' },
   { to: '/graph',     icon: '🕸️', label: '图谱管理' },
   { to: '/assets',    icon: '🖥️', label: '资产管理' },
-  { to: '/incidents', icon: '🎫', label: '工单沉淀', requireAction: 'write_incident' },
+  { to: '/incidents', icon: '🎫', label: '工单沉淀', requireAction: 'view_incident' },
   { to: '/extract',   icon: '📥', label: '知识抽取', requireAction: 'view_extract' },
   { to: '/sop',       icon: '📋', label: 'SOP 管理', requireAction: 'manage_sop' },
   { to: '/dashboard', icon: '📊', label: '运营看板', requireAction: 'view_dashboard' },
@@ -36,7 +36,8 @@ const ROLE_LABELS: Record<Role, string> = {
 }
 
 function Shell() {
-  const { role, setRole, can } = useRole()
+  const { role, setRole, can, apiKey, setApiKey } = useRole()
+  const [showKey, setShowKey] = useState(false)
 
   const visibleNav = NAV.filter(n => !n.requireAction || can(n.requireAction))
 
@@ -61,13 +62,39 @@ function Shell() {
           ))}
         </nav>
         <div className="sidebar-footer">
+          {/* API Key 配置 */}
+          <div className="apikey-section">
+            <div className="apikey-header">
+              <span className="role-label">Graph API Key</span>
+              <button
+                className="apikey-toggle"
+                onClick={() => setShowKey(v => !v)}
+                title={apiKey ? '已配置（点击修改）' : '未配置（点击设置）'}
+              >
+                {apiKey ? '🔒' : '🔓'}
+              </button>
+            </div>
+            {showKey && (
+              <input
+                className="role-select apikey-input"
+                type="password"
+                placeholder="留空 = 不鉴权（开发模式）"
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                onBlur={() => setShowKey(false)}
+                autoFocus
+              />
+            )}
+          </div>
+
+          {/* 角色选择 */}
           <div className="role-switcher">
             <span className="role-label">当前角色</span>
             <select
               className="role-select"
               value={role}
               onChange={e => setRole(e.target.value as Role)}
-              title="切换角色（仅限演示环境，生产应通过认证系统分配）"
+              title="切换角色（演示用；生产应通过认证系统分配）"
             >
               {(Object.entries(ROLE_LABELS) as [Role, string][]).map(([r, label]) => (
                 <option key={r} value={r}>{label}</option>
@@ -85,7 +112,7 @@ function Shell() {
           <Route path="/graph"     element={<GraphPage />} />
           <Route path="/assets"    element={<AssetsPage />} />
           <Route path="/incidents" element={
-            can('write_incident') ? <IncidentPage /> : <AccessDenied />
+            can('view_incident') ? <IncidentPage /> : <AccessDenied />
           } />
           <Route path="/extract"   element={
             can('view_extract') ? <ExtractPage /> : <AccessDenied />

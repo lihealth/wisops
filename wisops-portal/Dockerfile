@@ -4,7 +4,8 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install
 COPY . .
-# 若有 .env 文件会自动读取，否则忽略
+ARG VITE_DIFY_API_KEY
+ENV VITE_DIFY_API_KEY=$VITE_DIFY_API_KEY
 RUN npm run build
 
 # Stage 2: 运行

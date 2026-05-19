@@ -45,16 +45,18 @@ wisops/
 
 ### 3.1 统一门户端口与「无法访问」（必读）
 
-| 服务 | 本机地址（默认） | 说明 |
-|------|------------------|------|
-| **WisOps 统一门户**（首页 / 问答 / 图谱 / 抽取 / 看板 / 资产） | **http://localhost:8091** | `docker-compose` 中 `portal` 映射为 **`8091:80`**，**请勿再使用 8090**（旧文档或书签若仍为 8090 会 `ERR_CONNECTION_REFUSED`） |
-| **Graph API**（直连调试） | http://localhost:8021 | 映射 **`8021:8000`** |
+
+| 服务                                           | 本机地址（默认）                                           | 说明                                                                                                      |
+| -------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **WisOps 统一门户**（首页 / 问答 / 图谱 / 抽取 / 看板 / 资产） | **[http://localhost:8091](http://localhost:8091)** | `docker-compose` 中 `portal` 映射为 `**8091:80`**，**请勿再使用 8090**（旧文档或书签若仍为 8090 会 `ERR_CONNECTION_REFUSED`） |
+| **Graph API**（直连调试）                          | [http://localhost:8021](http://localhost:8021)     | 映射 `**8021:8000`**                                                                                      |
+
 
 若浏览器提示 **「拒绝连接」**：
 
-1. 确认 URL 是否为 **8091**（不是 8090）。  
-2. 执行 `docker compose --profile graph ps`，确认 **`wisops-portal`** 为 **Up**，且端口列为 **`0.0.0.0:8091->80/tcp`**。  
-3. 若门户未启动，常见原因是 **`docker compose ... --build` 失败**（例如镜像加速 **401**），按 **[docs/DOCKER_MIRROR.md](docs/DOCKER_MIRROR.md)** 处理后再 `up -d --build`。
+1. 确认 URL 是否为 **8091**（不是 8090）。
+2. 执行 `docker compose --profile graph ps`，确认 `**wisops-portal`** 为 **Up**，且端口列为 `**0.0.0.0:8091->80/tcp`**。
+3. 若门户未启动，常见原因是 `**docker compose ... --build` 失败**（例如镜像加速 **401**），按 **[docs/DOCKER_MIRROR.md](docs/DOCKER_MIRROR.md)** 处理后再 `up -d --build`。
 
 在项目根目录执行（核心服务）：
 
@@ -249,11 +251,11 @@ docker compose up -d --no-deps web
 现象示例：
 
 - `failed to resolve source metadata for docker.io/library/python:3.10-slim`
-- `docker.m.daocloud.io` … **`401 Unauthorized`**（拉 `python:3.10-slim`、`node:20-alpine` 等）
+- `docker.m.daocloud.io` … `**401 Unauthorized**`（拉 `python:3.10-slim`、`node:20-alpine` 等）
 
 原因：
 
-- Docker Desktop 无法直连 Docker Hub；或 **`registry-mirrors` 配置的镜像站返回 401**（常见于 DaoCloud 公共加速失效）
+- Docker Desktop 无法直连 Docker Hub；或 `**registry-mirrors` 配置的镜像站返回 401**（常见于 DaoCloud 公共加速失效）
 
 处理：
 
@@ -284,4 +286,3 @@ docker compose --profile graph up -d --build graph-api portal
 ## 10. 功能开发与自测流程
 
 每完成一项功能请先按 **[docs/TESTING.md](docs/TESTING.md)** 做最小验收再合入下一项；发起 Pull Request 时会自动出现 **[自测记录](.github/pull_request_template.md)** 清单，请如实勾选。
-

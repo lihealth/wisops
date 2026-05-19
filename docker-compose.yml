@@ -40,7 +40,7 @@ services:
     ports:
       - "8081:8080"
     volumes:
-      - hugegraph_data:/var/lib/hugegraph
+      - hugegraph_data:/hugegraph-server/rocksdb-data
     restart: unless-stopped
 
   # Dify API

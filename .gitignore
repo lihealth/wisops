@@ -21,6 +21,10 @@ data/qdrant_data/
 data/hugegraph_data/
 data/api_storage/
 
+# 备份目录（脚本生成，按需归档，不入库）
+backups/
+_hugegraph_backup_temp/
+
 # 外部数据集（按需下载，不入库）
 data/gaia/
 # Stack Exchange 全量 Posts.xml / 压缩包（样例 XML 与 README 可入库）
